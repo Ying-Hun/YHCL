@@ -1,0 +1,611 @@
+/* YHCL · 浅色液态玻璃主题（light liquid glass） */
+
+.root {
+  -fx-font-family: "Microsoft YaHei UI", "Segoe UI";
+  -fx-font-size: 13px;
+  -fx-background-color: transparent;
+  -fx-text-fill: #22333b;
+  /* ---- 文字主题 looked-up colors（默认值=原配色，无壁纸模式零变化）：
+     有壁纸时 App.updateTextTheme() 按背景主打色系在 rootPane 上整套覆写 ---- */
+  tx: #22333b;
+  tx-muted: #5f7280;
+  tx-faint: #8b9aa3;
+  tx-slate: #33505c;
+  tx-rail: #6b7d88;
+  tx-accent: #0d9488;
+  tx-accent-strong: #0b7a72;
+  tx-amber: #d97706;
+  tx-solid: #22333b;
+  tx-solid-muted: #5f7280;
+  tx-solid-faint: #8b9aa3;
+  tx-solid-2: #33505c;
+  tx-solid-3: #6b7d88;
+  tx-solid-strong: #0b7a72;
+  tx-solid-log: #2f4850;
+  tx-solid-prompt: #97a6ae;
+}
+.label { -fx-text-fill: #22333b; }
+.muted { -fx-text-fill: #5f7280; }
+.muted-2 { -fx-text-fill: #8b9aa3; }
+.accent-text { -fx-text-fill: #0d9488; }
+.amber-text { -fx-text-fill: #d97706; }
+.h1 { -fx-font-size: 33px; -fx-font-weight: 800; }
+.h2 { -fx-font-size: 17px; -fx-font-weight: 700; }
+.small { -fx-font-size: 11px; }
+.mono { -fx-font-family: "Consolas", "JetBrains Mono"; }
+
+/* ---- 自定义背景图层（root 最底层）+ 暗色蒙版 ---- */
+/* 背景图由代码用 BackgroundImage API 直接铺（cover 居中）；
+   此处不留任何 -fx-background-* 属性——CSS 的 background 属性会合成 Background
+   并整个覆盖代码 setBackground() 的结果，导致背景图丢失 */
+.bg-image {
+}
+.bg-dim { -fx-background-color: #000; }   /* 不透明度由代码 setOpacity 控制 */
+/* 未设壁纸时 bgWrap 的默认浅色底（进玻璃快照，卡片磨砂采样与环境同色，不割裂） */
+.bg-base {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #f4fbfa, #e2f1ef);
+}
+
+/* ---- 玻璃外壳（无系统边框后的整窗容器，半透明可透视桌面） ---- */
+.shell {
+  -fx-background-color:
+        transparent;   /* 旧实色底已移除：会盖死壁纸，卡片看起来像"单独渲染"的贴片 */
+        /* (旧第二层实色底已移除，壁纸透出后卡片玻璃才能作为滤镜融合) */
+  -fx-background-radius: 24;
+  -fx-border-color: rgba(255, 255, 255, 0.85);
+  -fx-border-radius: 24;
+  -fx-border-width: 1.2;
+  -fx-effect: dropshadow(gaussian, rgba(30, 64, 84, 0.22), 26, 0.15, 0, 10);
+}
+.win-btn {
+  -fx-background-color: transparent;
+  -fx-text-fill: #0d9488;
+  -fx-background-radius: 10;
+  -fx-min-width: 34;
+  -fx-min-height: 27;
+  -fx-cursor: hand;
+  -fx-font-size: 12px;
+  -fx-font-weight: 700;
+}
+.win-btn:hover {
+  -fx-background-color: rgba(45, 212, 191, 0.18);
+  -fx-text-fill: #0b7a72;
+}
+.win-close:hover {
+  -fx-background-color: rgba(45, 212, 191, 0.18);
+  -fx-text-fill: #0b7a72;
+}
+
+/* ---- 半透明面板与卡片 ---- */
+.panel {
+    -fx-background-color: transparent;   /* 同 .shell：面板底透明，卡片缝隙直接透出壁纸 */
+  -fx-background-radius: 22;
+  -fx-border-color: rgba(255, 255, 255, 0.7);
+  -fx-border-radius: 22;
+  -fx-border-width: 1;
+  -fx-padding: 30;
+}
+/* 模块与导航栏：iOS 26 液态玻璃。运行时由 App.glassPanelImage 合成玻璃图 setBackground 接管
+   （所有卡片共用同一套实时玻璃渲染：磨砂透光采样+统一色调+边缘高光，同参数零差异）。
+   重要：此处绝不能有任何 -fx-background-* 属性！一旦 CSS 管过背景属性，
+   规则失效或伪类重刷（点击/悬停）时 JavaFX 会把背景重置成空，玻璃图被清掉（卡片变全透明）。
+   玻璃卡也绝不能加 -fx-effect 投影：offsetY 重影会填满卡片间隙压暗成横向断条
+   （滚动时表现为“割裂”），玻璃悬浮感由 glassPanelImage 的边缘高光承担 */
+.card {
+  -fx-padding: 22;
+}
+.rail {
+}
+/* mod 列表条目/分组卡：同属玻璃方块，运行时由 glassPanelImage 接管 */
+.mod-cell-card {
+}
+.logo {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #2dd4bf, #0d9488);
+  -fx-background-radius: 15;
+  -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.35), 10, 0.1, 0, 3);
+}
+.logo .label { -fx-text-fill: #ffffff; -fx-font-size: 26px; -fx-font-weight: 900; }
+
+/* ---- 按钮 ---- */
+.accent-btn {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #2dd4bf, #0d9488);
+  -fx-text-fill: #ffffff;
+  -fx-font-weight: 700;
+  -fx-background-radius: 12.5;
+  -fx-background-insets: 1.5;
+  -fx-border-color: #14b8a6;
+  -fx-border-radius: 14;
+  -fx-border-width: 1.5;
+  -fx-cursor: hand;
+  -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.3), 10, 0.1, 0, 3);
+}
+.accent-btn:hover { -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #43dbca, #12a396); }
+.accent-btn:pressed { -fx-background-color: #0f8377; }
+.accent-btn:disabled { -fx-opacity: 0.45; }
+
+.toast {
+  -fx-background-color: rgba(255, 255, 255, 0.88);
+  -fx-text-fill: #0b7a72;
+  -fx-font-weight: 700;
+  -fx-padding: 10 18;
+  -fx-background-radius: 11;
+  -fx-background-insets: 1;
+  -fx-border-color: rgba(45, 212, 191, 0.6);
+  -fx-border-radius: 12;
+  -fx-effect: dropshadow(gaussian, rgba(30, 64, 84, 0.2), 14, 0.2, 0, 4);
+}
+.toast-error {
+  -fx-background-color: rgba(255, 236, 234, 0.92);
+  -fx-text-fill: #c0392b;
+  -fx-border-color: rgba(255, 138, 128, 0.7);
+}
+
+.ghost-btn {
+  -fx-background-color: rgba(255, 255, 255, 0.75);
+  -fx-text-fill: #33505c;
+  -fx-background-radius: 9.5;
+  -fx-background-insets: 1.5;
+  -fx-border-color: #2dd4bf;
+  -fx-border-radius: 11;
+  -fx-border-width: 1.5;
+  -fx-cursor: hand;
+}
+.ghost-btn:hover { -fx-background-color: rgba(255, 255, 255, 0.9); -fx-border-color: #2dd4bf; }
+
+/* ---- 左侧导航 ---- */
+.rail-btn {
+  -fx-background-color: transparent;
+  -fx-text-fill: #6b7d88;
+  -fx-background-radius: 14;
+  -fx-cursor: hand;
+  -fx-alignment: center;
+  -fx-padding: 13 8;
+  -fx-font-size: 12px;
+}
+.rail-btn:hover { -fx-background-color: rgba(255, 255, 255, 0.55); -fx-text-fill: #22333b; }
+.rail-btn:selected {
+  -fx-background-color: rgba(45, 212, 191, 0.22);
+  -fx-text-fill: #0b7a72;
+  -fx-font-weight: 700;
+}
+
+/* ---- 输入框 ---- */
+.dark-box {
+  -fx-background-color: rgba(255, 255, 255, 0.82);
+  -fx-text-fill: #22333b;
+  -fx-prompt-text-fill: #97a6ae;
+  -fx-background-radius: 10.5;
+  -fx-background-insets: 1.5;
+  -fx-border-color: #2dd4bf;
+  -fx-border-radius: 12;
+  -fx-border-width: 1.5;
+  -fx-padding: 10 12;
+  -fx-highlight-fill: rgba(45, 212, 191, 0.45);
+  -fx-highlight-text-fill: #0b3a36;
+}
+.dark-box:focused { -fx-border-color: #0d9488; }
+
+/* 可编辑下拉框（游戏版本）：内嵌编辑器、按钮单元格与箭头钮全部透明，露出 dark-box 底，
+   与旁侧下拉（加载器/排序/下载到）完全同一套风格 */
+.combo-box.dark-box .text-field {
+  -fx-background-color: transparent;
+  -fx-background-insets: 0;
+  -fx-background-radius: 0;
+  -fx-border-color: transparent;
+  -fx-text-fill: #22333b;
+  -fx-prompt-text-fill: #97a6ae;
+}
+.combo-box.dark-box .list-cell {
+  -fx-background-color: transparent;
+}
+.combo-box.dark-box .arrow-button {
+  -fx-background-color: transparent;
+  -fx-background-insets: 0;
+  -fx-background-radius: 0;
+  -fx-border-color: transparent;
+  -fx-padding: 0 10 0 0;
+}
+
+/* ---- 标签 chip ---- */
+.chip {
+  -fx-background-color: rgba(255, 255, 255, 0.75);
+  -fx-text-fill: #6b7d88;
+  -fx-background-radius: 9.5;
+  -fx-background-insets: 1.5;
+  -fx-border-color: #2dd4bf;
+  -fx-border-radius: 11;
+  -fx-border-width: 1.5;
+  -fx-cursor: hand;
+  -fx-padding: 8 18;
+  -fx-font-size: 12px;
+}
+.chip:hover { -fx-background-color: rgba(255, 255, 255, 0.85); -fx-text-fill: #22333b; }
+.chip:selected {
+  -fx-background-color: rgba(45, 212, 191, 0.2);
+  -fx-text-fill: #0b7a72;
+  -fx-font-weight: 700;
+  -fx-border-color: #2dd4bf;
+}
+
+/* ---- 下拉框 ---- */
+.dark-combo {
+  -fx-background-color: rgba(255, 255, 255, 0.82);
+  -fx-background-radius: 10.5;
+  -fx-background-insets: 1.5;
+  -fx-border-color: #2dd4bf;
+  -fx-border-radius: 12;
+  -fx-border-width: 1.5;
+}
+.dark-combo:focused { -fx-border-color: #0d9488; }
+.dark-combo .list-cell {
+  -fx-background-color: transparent;
+  -fx-text-fill: #22333b;
+  -fx-font-size: 13px;
+  -fx-padding: 8 4;
+}
+.dark-combo .text-field {
+  -fx-background-color: transparent;
+  -fx-text-fill: #22333b;
+  -fx-padding: 6 4;
+}
+.dark-combo .arrow-button { -fx-background-color: transparent; -fx-padding: 0 10 0 0; }
+.dark-combo .arrow { -fx-background-color: #8b9aa3; }
+.combo-box-popup .list-view {
+  -fx-background-color: rgba(250, 253, 254, 0.98);
+  -fx-border-color: rgba(255, 255, 255, 0.95);
+  -fx-background-radius: 12;
+  -fx-effect: dropshadow(gaussian, rgba(30, 64, 84, 0.22), 16, 0.2, 0, 6);
+}
+.combo-box-popup .list-cell {
+  -fx-background-color: transparent;
+  -fx-text-fill: #22333b;
+  -fx-padding: 10 14;
+}
+.combo-box-popup .list-cell:hover { -fx-background-color: rgba(45, 212, 191, 0.15); }
+.combo-box-popup .list-cell:selected { -fx-background-color: rgba(45, 212, 191, 0.28); -fx-text-fill: #0b7a72; }
+
+/* ---- 复选框 ---- */
+.dark-check {
+  -fx-text-fill: #22333b;
+  -fx-font-size: 12.5px;
+}
+.dark-check .box {
+  -fx-background-color: rgba(255, 255, 255, 0.65);
+  -fx-border-color: #14b8a6;
+  -fx-border-width: 1.5;
+  -fx-border-radius: 5;
+  -fx-background-radius: 5;
+}
+.dark-check:selected .box {
+  -fx-background-color: #14b8a6;
+  -fx-border-color: #0d9488;
+  -fx-border-width: 1.5;
+}
+
+/* ---- 青绿色外圈（需在基础样式之后定义以覆盖描边） ---- */
+.ring {
+  -fx-border-color: #14b8a6;
+  -fx-border-width: 2;
+}
+.dark-check .mark { -fx-background-color: #ffffff; }
+
+/* ---- 玻璃卡内控件透明化：卡片只是滤镜，控件叠在滤镜之上（全局统一，卡外工具区不受影响） ---- */
+.card .dark-box,
+.card .dark-combo {
+  -fx-background-color: rgba(255, 255, 255, 0.14);
+}
+.card .dark-box .list-cell,
+.card .dark-combo .list-cell {
+  -fx-background-color: transparent;
+}
+.card .dark-box .arrow-button,
+.card .dark-combo .arrow-button {
+  -fx-background-color: transparent;
+}
+.card .dark-box .text-field {
+  -fx-background-color: transparent;
+}
+.card .ghost-btn {
+  -fx-background-color: rgba(255, 255, 255, 0.14);
+}
+.card .ghost-btn:hover { -fx-background-color: rgba(255, 255, 255, 0.3); }
+.card .dark-check .box {
+  -fx-background-color: rgba(255, 255, 255, 0.3);
+}
+.card .dark-check:selected .box {
+  -fx-background-color: #14b8a6;
+  -fx-border-color: #0d9488;
+}
+
+/* ---- 列表 ---- */
+.list-view { -fx-background-color: transparent; -fx-border-color: transparent; }
+.list-cell {
+  -fx-background-color: rgba(255, 255, 255, 0.65);
+  -fx-text-fill: #22333b;
+  -fx-background-radius: 12;
+  -fx-padding: 11 13;
+  -fx-border-color: transparent;
+  -fx-border-radius: 12;
+}
+.list-cell:filled:hover { -fx-background-color: rgba(255, 255, 255, 0.8); }
+.list-cell:filled:selected {
+  -fx-background-color: rgba(45, 212, 191, 0.22);
+  -fx-text-fill: #0b7a72;
+  -fx-font-weight: 700;
+  -fx-border-color: transparent;
+  -fx-border-width: 0;
+}
+
+/* ---- 进度条 / 滑块 ---- */
+.progress-bar { -fx-background-color: rgba(203, 222, 225, 0.9); -fx-background-radius: 5; }
+.progress-bar .track { -fx-background-color: rgba(203, 222, 225, 0.9); -fx-background-radius: 5; }
+.progress-bar .bar {
+  -fx-background-color: linear-gradient(to right, #2dd4bf, #7dd3fc, #fbbf24);
+  -fx-background-radius: 5;
+  -fx-padding: 5;
+}
+.slider .track { -fx-background-color: #c9dce0; -fx-pref-height: 6; -fx-background-radius: 99; -fx-background-insets: 0 99 0 99; }
+.slider .thumb {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #2dd4bf, #0d9488);
+  -fx-background-radius: 99;
+  -fx-pref-width: 19px;
+  -fx-pref-height: 19px;
+}
+
+/* ---- 日志区 ---- */
+.log-area {
+  -fx-control-inner-background: #f0f8f7;
+  -fx-text-fill: #2f4850;
+  -fx-font-family: "Consolas";
+  -fx-font-size: 12px;
+  -fx-background-color: transparent;
+  -fx-background-radius: 12;
+}
+
+/* ---- 滚动条（无白底、无上下箭头，仅滑块；出现时完全不透明） ---- */
+.scroll-pane { -fx-background-color: transparent; }
+.scroll-bar {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+    -fx-opacity: 0;
+}
+.scroll-bar .increment-button .increment-arrow,
+.scroll-bar .decrement-button .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
+    -fx-background-color: transparent;
+}
+.scroll-bar .thumb { -fx-background-color: rgb(58, 88, 105); -fx-background-radius: 8; }
+.scroll-bar .track { -fx-background-color: transparent; }
+.scroll-pane > .viewport { -fx-background-color: transparent; }
+
+/* ---- 折叠面板（版本设置·高级选项） ---- */
+.titled-pane > .title {
+  -fx-background-color: rgba(255, 255, 255, 0.80);
+  -fx-background-radius: 12;
+  -fx-border-color: rgba(255, 255, 255, 0.85);
+  -fx-border-radius: 12;
+}
+.titled-pane > .title > .text { -fx-fill: #22333b; }
+.titled-pane > .content {
+  -fx-background-color: rgba(255, 255, 255, 0.70);
+  -fx-background-radius: 0 0 12 12;
+  -fx-border-color: rgba(255, 255, 255, 0.7);
+}
+
+/* ---- 右下角下载悬浮球 ---- */
+.download-ball {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #2dd4bf, #0d9488);
+  -fx-background-radius: 29;
+  -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.45), 16, 0.25, 0, 5);
+  -fx-cursor: hand;
+}
+.download-ball:hover {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #43dbca, #12a396);
+}
+.download-ball-done {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #7ee8c7, #0d9488);
+}
+.download-ball-fail {
+  -fx-background-color: linear-gradient(from 0% 0% to 100% 100%, #fbbf24, #e05252);
+}
+
+/* ---- 下载详情页的文件列表：条目多，压缩行高 ---- */
+.dl-cell {
+  -fx-padding: 5 11;
+  -fx-font-size: 11.5px;
+}
+
+/* ---- 版本选择页的版本行 ---- */
+.ver-row {
+  -fx-background-color: rgba(255, 255, 255, 0.60);
+  -fx-background-radius: 11;
+  -fx-background-insets: 1;
+  -fx-border-color: rgba(255, 255, 255, 0.85);
+  -fx-border-radius: 12;
+  -fx-border-width: 1;
+  -fx-padding: 8 12;
+  -fx-cursor: hand;
+}
+.ver-row:hover {
+  -fx-background-color: rgba(45, 212, 191, 0.14);
+  -fx-border-color: #2dd4bf;
+}
+.ver-row-name { -fx-font-weight: 700; -fx-font-size: 13.5px; }
+.ver-ico {
+  -fx-background-radius: 10;
+  -fx-border-radius: 10;
+  -fx-border-color: rgba(255, 255, 255, 0.55);
+  -fx-border-width: 1;
+}
+.ver-ico .label { -fx-text-fill: #ffffff; -fx-font-size: 11px; -fx-font-weight: 800; }
+
+/* ---- 青绿色圈：未加样式类的按钮/开关也统一描边（类选择器优先级更高，不影响上面的定制样式） ---- */
+.button, .toggle-button {
+  -fx-background-color: rgba(255, 255, 255, 0.75);
+  -fx-text-fill: #33505c;
+  -fx-background-radius: 9.5;
+  -fx-background-insets: 1.5;
+  -fx-border-color: #2dd4bf;
+  -fx-border-radius: 11;
+  -fx-border-width: 1.5;
+  -fx-cursor: hand;
+}
+
+/* ---- 内存分配卡（PCL2 风格：圆圈单选 + 双色进度条） ---- */
+.mem-radio {
+  -fx-background-color: transparent;
+  -fx-text-fill: #22333b;
+  -fx-background-radius: 0;
+  -fx-border-color: transparent;
+  -fx-border-radius: 0;
+  -fx-border-width: 0;
+  -fx-font-size: 13px;
+  -fx-cursor: hand;
+  -fx-padding: 2 8 2 2;
+}
+.mem-radio:hover { -fx-text-fill: #0b7a72; }
+.mem-radio .radio {
+  -fx-background-color: rgba(255, 255, 255, 0.75);
+  -fx-border-color: #14b8a6;
+  -fx-border-width: 1.5;
+  -fx-border-radius: 99;
+  -fx-background-radius: 99;
+  -fx-padding: 3;
+}
+.mem-radio:selected .radio { -fx-border-color: #0d9488; }
+.mem-radio .radio .dot {
+  -fx-background-color: transparent;
+  -fx-background-radius: 99;
+  -fx-padding: 3.5;
+}
+.mem-radio:selected .radio .dot { -fx-background-color: #0d9488; }
+
+.mem-value { -fx-font-size: 16px; -fx-font-weight: 800; -fx-text-fill: #22333b; }
+
+.progress-alloc {
+  -fx-background-color: transparent;
+  -fx-pref-height: 10;
+  -fx-min-height: 10;
+  -fx-max-height: 10;
+}
+.progress-alloc .track { -fx-background-color: rgba(203, 222, 225, 0.55); -fx-background-radius: 99; }
+.progress-alloc .bar {
+  -fx-background-color: #b3f0e8;
+  -fx-background-radius: 99;
+  -fx-padding: 0;
+}
+.progress-used {
+  -fx-background-color: transparent;
+  -fx-pref-height: 10;
+  -fx-min-height: 10;
+  -fx-max-height: 10;
+}
+.progress-used .track { -fx-background-color: transparent; -fx-background-radius: 99; }
+.progress-used .bar {
+  -fx-background-color: linear-gradient(to right, #0d9488, #2dd4bf);
+  -fx-background-radius: 99;
+  -fx-padding: 0;
+}
+
+/* ---- 标题栏控制按钮（最小化/关闭）：边缘不描青绿圈，覆盖 .button 兜底描边 ---- */
+.win-btn {
+  -fx-border-color: transparent;
+  -fx-border-radius: 10;
+  -fx-border-width: 0;
+}
+
+/* ---- 自定义背景图激活时：外壳/面板底色透明，背景图铺满主页面；模块/导航栏保持统一实色 ---- */
+.custom-bg .shell { -fx-background-color: transparent; }
+.custom-bg .panel { -fx-background-color: transparent; }
+
+/* ==================== 文字随背景动态调整：按“文字所在背景”分组各取对比色（仅自定义背景模式） ====================
+   每组背景颜色各不相同，全部随背景图实时变化：
+   · 裸壁纸/玻璃外壳底上的文字 → tx*（与壁纸明暗完全相反：黑底白字、白底黑字）
+   · 玻璃卡片内文字 → tx-card*（玻璃提亮基色反转，带一丝色相，与裸底字分色）
+   · 自带浅色底条的控件面（输入框/列表行/版本行/折叠面板/吐司）→ tx-solid*（恒深字，色相随壁纸）
+   · 按钮/药丸面 → tx-solid-2/3/strong（恒深字，另一组色相与正文区分）
+   · 强调/警告 → tx-accent 与 tx-amber（高饱和独立色系）
+   作用域都带 .custom-bg：无壁纸时整段不匹配，颜色与历史像素完全一致；
+   弹窗/右键菜单是独立 Scene，不带 .custom-bg，永远走上面的固定色，零解析风险。
+   同 specificity 时靠“后写覆盖”排序：通用在前、专属在后，白色字压轴。 */
+.custom-bg .label { -fx-text-fill: tx; }
+.custom-bg .muted { -fx-text-fill: tx-muted; }
+.custom-bg .muted-2 { -fx-text-fill: tx-faint; }
+.custom-bg .accent-text { -fx-text-fill: tx-accent; }
+.custom-bg .amber-text { -fx-text-fill: tx-amber; }
+.custom-bg .button, .custom-bg .toggle-button { -fx-text-fill: tx-solid-2; }
+.custom-bg .ghost-btn { -fx-text-fill: tx-solid-2; }
+.custom-bg .chip { -fx-text-fill: tx-solid-3; }
+.custom-bg .chip:hover { -fx-text-fill: tx-solid; }
+.custom-bg .chip:selected { -fx-text-fill: tx-solid-strong; }
+.custom-bg .win-btn { -fx-text-fill: tx-accent; }
+.custom-bg .win-btn:hover, .custom-bg .win-close:hover { -fx-text-fill: tx-accent-strong; }
+/* 导航按钮文字同样随背景明暗翻转 */
+.custom-bg .rail-btn { -fx-text-fill: tx-solid-3; }
+.custom-bg .rail-btn:hover { -fx-text-fill: tx-solid; }
+.custom-bg .rail-btn:selected { -fx-text-fill: tx-solid-strong; }
+.custom-bg .mem-radio { -fx-text-fill: tx; }
+.custom-bg .mem-radio:hover { -fx-text-fill: tx-accent-strong; }
+.custom-bg .mem-value { -fx-text-fill: tx; }
+.custom-bg .dark-check { -fx-text-fill: tx; }
+.custom-bg .dark-box { -fx-text-fill: tx-solid; -fx-prompt-text-fill: tx-solid-prompt; }
+.custom-bg .dark-combo .list-cell, .custom-bg .dark-combo .text-field { -fx-text-fill: tx-solid; }
+.custom-bg .combo-box.dark-box .text-field { -fx-text-fill: tx-solid; -fx-prompt-text-fill: tx-solid-prompt; }
+.custom-bg .combo-box.dark-box .list-cell { -fx-text-fill: tx-solid; }
+/* 控件面与文本框内文字：同样随背景明暗翻转（背景黑→白字、背景白→黑字） */
+.custom-bg .list-cell { -fx-text-fill: tx-solid; }
+.custom-bg .list-cell:filled:selected { -fx-text-fill: tx-solid-strong; }
+.custom-bg .ver-row .label { -fx-text-fill: tx-solid; }
+.custom-bg .ver-row .muted { -fx-text-fill: tx-solid-muted; }
+.custom-bg .ver-row .muted-2 { -fx-text-fill: tx-solid-faint; }
+.custom-bg .titled-pane .label { -fx-text-fill: tx-solid; }
+.custom-bg .titled-pane .muted { -fx-text-fill: tx-solid-muted; }
+.custom-bg .titled-pane .muted-2 { -fx-text-fill: tx-solid-faint; }
+.custom-bg .titled-pane .dark-check { -fx-text-fill: tx-solid; }
+.custom-bg .titled-pane > .title > .text { -fx-fill: tx-solid; }
+.custom-bg .log-area { -fx-text-fill: tx-solid-log; }
+.custom-bg .toast { -fx-text-fill: tx-solid-strong; }
+.custom-bg .toast-error { -fx-text-fill: #c0392b; }
+/* 卡片内文字分组：与裸底字分色（tx-card*） */
+.custom-bg .card .label, .custom-bg .mod-cell-card .label { -fx-text-fill: tx-card; }
+.custom-bg .card .muted, .custom-bg .mod-cell-card .muted { -fx-text-fill: tx-card-muted; }
+.custom-bg .card .muted-2, .custom-bg .mod-cell-card .muted-2 { -fx-text-fill: tx-card-faint; }
+.custom-bg .card .accent-text, .custom-bg .mod-cell-card .accent-text { -fx-text-fill: tx-card-accent; }
+/* 玻璃卡内控件透明（底条不存在）→ 文字随玻璃翻转，压过上面的浅底规则 */
+.custom-bg .card .dark-box, .custom-bg .mod-cell-card .dark-box {
+  -fx-text-fill: tx;
+  -fx-prompt-text-fill: tx-faint;
+}
+/* :filled / :filled:selected 变体提权重，压过 .custom-bg .list-cell:filled:selected（combo 显示字=已填充已选中 cell）。
+   注意 ComboBox 有 dark-combo 与 dark-box 两种样式类（visBox 等用 dark-box），两种都要覆盖 */
+.custom-bg .card .dark-combo .list-cell,
+.custom-bg .card .dark-combo .list-cell:filled,
+.custom-bg .card .dark-combo .list-cell:filled:selected,
+.custom-bg .card .dark-combo .text-field,
+.custom-bg .card .dark-box .list-cell,
+.custom-bg .card .dark-box .list-cell:filled,
+.custom-bg .card .dark-box .list-cell:filled:selected,
+.custom-bg .card .dark-box .text-field,
+.custom-bg .mod-cell-card .dark-combo .list-cell,
+.custom-bg .mod-cell-card .dark-combo .list-cell:filled,
+.custom-bg .mod-cell-card .dark-combo .list-cell:filled:selected,
+.custom-bg .mod-cell-card .dark-box .list-cell,
+.custom-bg .mod-cell-card .dark-box .list-cell:filled,
+.custom-bg .mod-cell-card .dark-box .list-cell:filled:selected {
+  -fx-text-fill: tx;
+}
+.custom-bg .card .ghost-btn, .custom-bg .mod-cell-card .ghost-btn { -fx-text-fill: tx-card-accent; }
+/* 固定白字的彩色底徽标（最后写，压过 .custom-bg .label） */
+.custom-bg .logo .label, .custom-bg .ver-ico .label, .custom-bg .accent-btn {
+  -fx-text-fill: #ffffff;
+}
