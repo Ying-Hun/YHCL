@@ -25,15 +25,9 @@ import javax.net.ssl.X509TrustManager;
  *
  * 采用 AAD v2 设备码通道（login.microsoftonline.com/consumers）：
  *  - 端点：…/oauth2/v2.0/devicecode 与 …/oauth2/v2.0/token；
- *  - client_id：自注册 Azure 应用「YHCL」（登录网页显示 YHCL，而非借用官方 title 名）；
+ *  - client_id：自注册 Azure 应用「YHCL」（登录网页显示 YHCL）；
  *  - scope：XboxLive.signin offline_access；
- *  - XBL RpsTicket 前缀 "d="（AAD v2 令牌；live.com 老令牌才用 "t="）。
- *
- * 风险与回退：Mojang 只认白名单内的 Xbox title ID，自注册应用的 XSTS 令牌可能被
- * Minecraft Services 403 Invalid app registration 拒绝（应用登记通道已关闭）。
- * 若被拒则回退到借用第一方 title：CLIENT_ID 换回 00000000441cc96b（Minecraft
- * Nintendo Switch）、端点换回 login.live.com/oauth20_connect.srf / oauth20_token.srf、
- * scope 用 service::user.auth.xboxlive.com::MBI_SSL、RpsTicket 用 "t=" 前缀。
+ *  - XBL RpsTicket 前缀 "d="（AAD v2 令牌）。
  */
 public final class MicrosoftAuth {
 

@@ -7495,7 +7495,7 @@ public final class App extends Application {
                 + "注意：联机期间请保持陶瓦运行，关闭启动器时会自动停止。");
 
         /* ---- 版权声明（AGPL 例外要求标识） ---- */
-        Label cr = new Label("陶瓦联机 Terracotta © Burning_TNT · AGPL-3.0 开源（基于 EasyTier）");
+        Label cr = new Label("陶瓦联机 Terracotta © Burning_TNT · AGPL-3.0 开源（基于 EasyTier）｜源码：github.com/BurningTNT/Terracotta");
         cr.getStyleClass().addAll("muted-2", "small");
         cr.setWrapText(true);
         VBox crCard = new VBox(8, cr);
