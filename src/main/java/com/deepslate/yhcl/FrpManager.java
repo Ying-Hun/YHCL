@@ -44,7 +44,6 @@ public final class FrpManager {
     public boolean isRunning() { return running.get(); }
     public String error() { return errorMsg; }
 
-    /** frpc 是否就绪：路径非空且文件存在 */
     public boolean frpcReady() {
         return frpcPath != null && Files.exists(frpcPath) && Files.isRegularFile(frpcPath);
     }

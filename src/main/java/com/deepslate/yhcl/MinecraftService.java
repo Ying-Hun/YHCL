@@ -980,7 +980,6 @@ public final class MinecraftService {
             default -> mcVer;
         };
 
-        // 下载加载器自身的库
         prepare(id, log, prog, status);
         // 勾选加载器会把原版游戏顺带下一份（client jar 归属继承根版本）：
         // 若那份原版是本次下载期间落盘的重复产物，并入加载器版本后删掉，只留可启动的加载器版本
@@ -1010,7 +1009,6 @@ public final class MinecraftService {
             }
             if (touched < installStart - 60_000) return;   // 窗口外 = 用户原有安装，不动
 
-            // 1) 加载器 json 改写为自包含（合并 inheritsFrom 链、去掉继承标记）
             JsonNode merged = loadRoot(loaderId);
             ((ObjectNode) merged).remove("inheritsFrom");
             Files.writeString(ljson, MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(merged),
@@ -1020,7 +1018,6 @@ public final class MinecraftService {
             Path dstJar = ldir.resolve(loaderId + ".jar");
             if (Files.exists(srcJar) && !Files.exists(dstJar))
                 Files.move(srcJar, dstJar, StandardCopyOption.REPLACE_EXISTING);
-            // 3) 删除重复下载的原版版本目录
             deleteQuietly(vdir);
             log.accept("已清理重复下载的原版 " + mcVer + "（已并入 " + loaderId + "，可正常启动）");
         } catch (Exception e) {
@@ -1593,7 +1590,6 @@ public final class MinecraftService {
             return;
         }
 
-        // 第二轮：损坏/缺失的文件自动重新下载修复
         log.accept("完整性校验发现 " + broken.size() + " 个文件不完整，正在重新下载修复…");
         if (status != null) status.accept("校验发现 " + broken.size() + " 个不完整文件，正在修复…");
         ExecutorService rpool = Executors.newFixedThreadPool(dlThreads());
@@ -1619,7 +1615,6 @@ public final class MinecraftService {
         }
         if (monitor.cancelRequested()) throw new IOException(cancelReason());
 
-        // 第三轮：修复后再复核一遍，仍不完整的直接报错
         List<String> stillBad = new ArrayList<>();
         for (Job j : broken) {
             if (!intact(j)) stillBad.add(j.dest().getFileName().toString());
@@ -1953,7 +1948,6 @@ public final class MinecraftService {
 
             JsonNode art = lib.path("downloads").path("artifact");
             if (art.has("path")) {
-                // 有官方下载路径
                 Path dest = libRoot.resolve(art.path("path").asText().replace('/', File.separatorChar));
                 String path = art.path("path").asText();
                 String url = art.has("url") && !art.path("url").asText().isBlank()
@@ -2248,7 +2242,6 @@ public final class MinecraftService {
     private boolean downloadChunked(String url, Path target, long timeoutSec) {
         List<Path> parts = new ArrayList<>();
         try {
-            // 1) Range 探测总大小
             long total;
             HttpRequest probe = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(30))
@@ -2324,7 +2317,6 @@ public final class MinecraftService {
             }
             if (first != null) throw first;
 
-            // 3) 合并
             try (FileChannel out = FileChannel.open(target,
                     StandardOpenOption.CREATE, StandardOpenOption.WRITE,
                     StandardOpenOption.TRUNCATE_EXISTING)) {
@@ -3625,7 +3617,6 @@ public final class MinecraftService {
                 // 选最新一个 (index 0)
                 JsonNode files = arr.get(0).get("files");
                 if (files == null || !files.isArray() || files.size() == 0) return Optional.empty();
-                // 优先选 primary=true 的文件，否则第一个
                 for (JsonNode f : files) if (f.path("primary").asBoolean(false))
                     return Optional.of(f.path("url").asText());
                 return Optional.of(files.get(0).path("url").asText());
@@ -3656,7 +3647,6 @@ public final class MinecraftService {
                     for (JsonNode vn : arr) {
                         JsonNode files = vn.get("files");
                         if (files == null || !files.isArray() || files.size() == 0) continue;
-                        // 优先 primary=true 的文件，否则第一个
                         JsonNode file = files.get(0);
                         for (JsonNode f : files) if (f.path("primary").asBoolean(false)) { file = f; break; }
                         JsonNode gvs = vn.get("game_versions"), lds = vn.get("loaders");

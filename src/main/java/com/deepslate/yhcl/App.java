@@ -2,7 +2,6 @@ package com.deepslate.yhcl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.deepslate.yhcl.MinecraftService.DownloadMonitor;
-import com.deepslate.yhcl.MinecraftService.ItemState;
 import javafx.animation.Animation;
 
 import javafx.animation.AnimationTimer;
@@ -59,7 +58,6 @@ import javafx.scene.shape.StrokeLineJoin;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
-import javafx.stage.Popup;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.util.Duration;
@@ -89,7 +87,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
 
@@ -1630,47 +1627,6 @@ public final class App extends Application {
 
 
 
-    /**
-
-     * 采样绘制：目标矩形 (dx,dy,dw,dh) 原比例 1:1 采样身后磨砂背景，零位移。
-
-     * pad 为 frost 图四周延拓边距。源矩形优先整体滑进图内（延拓区保证一致内容）；
-
-     * 极端越界才贴边，防止 1px 拉伸满屏。
-
-     */
-
-    private static void drawGlassBand(GraphicsContext g, Image ch,
-
-                                      double dx, double dy, double dw, double dh,
-
-                                      double sceneX, double sceneY,
-
-                                      double kw, double kh, double pad) {
-
-        double sw = dw * kw, sh = dh * kh;
-
-        double sx = (sceneX + dx) * kw + pad;
-
-        double sy = (sceneY + dy) * kh + pad;
-
-        double bw = ch.getWidth(), bh = ch.getHeight();
-
-        // 采样窗整体滑进图内（不裁边）：面板在视口外时坐标越界，裁边会把 1px 贴边像素
-
-        // 拉伸满屏——贴边恰是模糊出血的亮色镶边，三通道 ADD 后叠成白板
-
-        sw = Math.min(Math.max(sw, 1), bw);
-
-        sh = Math.min(Math.max(sh, 1), bh);
-
-        sx = Math.min(Math.max(sx, 0), bw - sw);
-
-        sy = Math.min(Math.max(sy, 0), bh - sh);
-
-        g.drawImage(ch, sx, sy, sw, sh, dx, dy, dw, dh);
-
-    }
 
 
 

@@ -267,7 +267,6 @@ public final class MicrosoftAuth {
         String[] parts = jwt.split("\\.");
         if (parts.length < 2) return "";
         String p = parts[1];
-        // Base64 URL → Base64，补 padding
         p = p.replace('-', '+').replace('_', '/');
         while (p.length() % 4 != 0) p += "=";
         return new String(java.util.Base64.getDecoder().decode(p), StandardCharsets.UTF_8);

@@ -4,14 +4,11 @@ import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
 
 import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.ByteArrayInputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.Inet6Address;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.MulticastSocket;
 import java.net.NetworkInterface;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
