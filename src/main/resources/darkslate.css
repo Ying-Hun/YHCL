@@ -206,6 +206,18 @@
   -fx-padding: 0 10 0 0;
 }
 
+/* 过滤行下拉框（游戏版本/加载器/排序/下载到）：压扁到与旁侧 11px 标题同高 */
+.combo-box.dark-box.filter-combo {
+  -fx-padding: 1 8;
+  -fx-font-size: 11px;
+}
+.combo-box.dark-box.filter-combo > .list-cell {
+  -fx-padding: 0 6 0 0;
+}
+.combo-box.dark-box.filter-combo .arrow-button {
+  -fx-padding: 0 6 0 0;
+}
+
 /* ---- 标签 chip ---- */
 .chip {
   -fx-background-color: rgba(255, 255, 255, 0.75);

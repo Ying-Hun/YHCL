@@ -3726,7 +3726,7 @@ public final class App extends Application {
         modDlMcVersion.setPromptText("全部");
         modDlMcVersion.getItems().add("全部");
         modDlMcVersion.setValue("全部");
-        modDlMcVersion.getStyleClass().add("dark-box");
+        modDlMcVersion.getStyleClass().addAll("dark-box", "filter-combo");
         modDlMcVersion.setEditable(false);   // 砍掉手动输入版本，只能从下拉选（点击也不会出现输入光标）
         modDlMcVersion.setPrefWidth(120);
         // 选中某个版本即按该版本过滤 Mod
@@ -3741,7 +3741,7 @@ public final class App extends Application {
         modDlLoader = new ComboBox<>();
         modDlLoader.getItems().addAll("全部", "fabric", "forge", "neoforge");
         modDlLoader.setValue("全部");
-        modDlLoader.getStyleClass().add("dark-box");
+        modDlLoader.getStyleClass().addAll("dark-box", "filter-combo");
         modDlLoader.setPrefWidth(120);
         modDlLoader.setMinWidth(Region.USE_PREF_SIZE);   // 不参与压缩，保证 "neoforge" 完整显示
 
@@ -3750,7 +3750,7 @@ public final class App extends Application {
         modDlSort = new ComboBox<>();
         modDlSort.getItems().addAll("热度", "综合", "最近更新", "最多收藏");
         modDlSort.setValue("热度");
-        modDlSort.getStyleClass().add("dark-box");
+        modDlSort.getStyleClass().addAll("dark-box", "filter-combo");
         modDlSort.setPrefWidth(130);
         modDlSort.setMinWidth(Region.USE_PREF_SIZE);   // 不参与压缩，保证「最多收藏」等完整显示
         modDlSort.valueProperty().addListener((o, a, b) -> onModSearch());
@@ -3759,7 +3759,7 @@ public final class App extends Application {
         modDlTargetTip.getStyleClass().addAll("muted", "small");
         modDlTargetVer = new ComboBox<>();
         modDlTargetVer.setPromptText("选择一个已安装版本");
-        modDlTargetVer.getStyleClass().add("dark-box");
+        modDlTargetVer.getStyleClass().addAll("dark-box", "filter-combo");
         modDlTargetVer.setEditable(false);
         modDlTargetVer.setCellFactory(lv -> verIdCell());
         modDlTargetVer.setButtonCell(verIdCell());
@@ -3905,7 +3905,7 @@ public final class App extends Application {
         st.mcVer.setPromptText("全部");
         st.mcVer.getItems().add("全部");
         st.mcVer.setValue("全部");
-        st.mcVer.getStyleClass().add("dark-box");
+        st.mcVer.getStyleClass().addAll("dark-box", "filter-combo");
         st.mcVer.setEditable(false);
         st.mcVer.setPrefWidth(120);
         st.mcVer.valueProperty().addListener((o, a, b) -> {
@@ -3919,7 +3919,7 @@ public final class App extends Application {
         st.sort = new ComboBox<>();
         st.sort.getItems().addAll("热度", "综合", "最近更新", "最多收藏");
         st.sort.setValue("热度");
-        st.sort.getStyleClass().add("dark-box");
+        st.sort.getStyleClass().addAll("dark-box", "filter-combo");
         st.sort.setPrefWidth(130);
         st.sort.setMinWidth(Region.USE_PREF_SIZE);
         st.sort.valueProperty().addListener((o, a, b) -> onPackSearch(st));
@@ -3930,7 +3930,7 @@ public final class App extends Application {
             targetTip.setMinWidth(Region.USE_PREF_SIZE);
             st.targetVer = new ComboBox<>();
             st.targetVer.setPromptText("选择一个已安装版本");
-            st.targetVer.getStyleClass().add("dark-box");
+            st.targetVer.getStyleClass().addAll("dark-box", "filter-combo");
             st.targetVer.setEditable(false);
             st.targetVer.setCellFactory(lv -> verIdCell());
             st.targetVer.setButtonCell(verIdCell());
