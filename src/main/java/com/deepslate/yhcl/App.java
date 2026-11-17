@@ -313,8 +313,7 @@ public final class App extends Application {
     private ToggleButton dlHubTabVers, dlHubTabMods;
     private TextField modDlSearch;
     private ComboBox<String> modDlMcVersion, modDlLoader, modDlSort, modDlTargetVer;
-    /** Mod 分类选项区（Modrinth/CurseForge 共通分类，位于筛选行下方） */
-    private FlowPane modDlCatRow;
+    private ComboBox<String> modDlCat;   // 分类下拉（Modrinth/CurseForge 共通分类）
     private String modDlCategory = "";   // 选中的分类（Modrinth slug，"" = 全部）
     private boolean modDlVerQuiet;               // 程序化改写版本下拉值时不触发搜索
     private boolean mcVerLoading, mcVerLoaded;   // 游戏版本清单获取状态（点击下载模块自动获取）
@@ -3719,7 +3718,7 @@ public final class App extends Application {
         searchRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(modDlSearch, Priority.ALWAYS);
 
-        /* ---- 过滤 + 目标行（合并单行压缩头部：游戏版本 / 加载器 / 排序 / 下载到） ---- */
+        /* ---- 过滤 + 目标行（合并单行压缩头部：游戏版本 / 加载器 / 分类 / 排序 / 下载到） ---- */
         Label verCap = new Label("游戏版本");
         verCap.getStyleClass().addAll("muted", "small");
         modDlMcVersion = new ComboBox<>();
@@ -3744,6 +3743,22 @@ public final class App extends Application {
         modDlLoader.getStyleClass().addAll("dark-box", "filter-combo");
         modDlLoader.setPrefWidth(120);
         modDlLoader.setMinWidth(Region.USE_PREF_SIZE);   // 不参与压缩，保证 "neoforge" 完整显示
+
+        Label catCap = new Label("分类");
+        catCap.getStyleClass().addAll("muted", "small");
+        modDlCat = new ComboBox<>();
+        modDlCat.getItems().add("全部");
+        for (String[] row : MinecraftService.MOD_CATEGORIES) modDlCat.getItems().add(row[0]);
+        modDlCat.setValue("全部");
+        modDlCat.getStyleClass().addAll("dark-box", "filter-combo");
+        modDlCat.setEditable(false);
+        modDlCat.setPrefWidth(110);
+        // 选中分类即回到第 1 页重新搜索（「全部」= 不过滤）
+        modDlCat.valueProperty().addListener((o, a, b) -> {
+            modDlCategory = categorySlug(b);
+            modDlCurPage = 1;
+            loadModPage();
+        });
 
         Label sortCap = new Label("排序");
         sortCap.getStyleClass().addAll("muted", "small");
@@ -3778,11 +3793,11 @@ public final class App extends Application {
             } catch (Exception ex) { showToast("打开 mods 目录失败", true); }
         });
 
-        modDlFilterRow = new HBox(8, verCap, modDlMcVersion, loaderCap, modDlLoader, sortCap, modDlSort,
-                modDlTargetTip, modDlTargetVer, modDlBrowseBtn);
+        modDlFilterRow = new HBox(8, verCap, modDlMcVersion, loaderCap, modDlLoader, catCap, modDlCat,
+                sortCap, modDlSort, modDlTargetTip, modDlTargetVer, modDlBrowseBtn);
         modDlFilterRow.setAlignment(Pos.CENTER_LEFT);
         // 行内空间不足时优先压缩下拉框，标题文字和按钮不截断
-        for (Label cap : new Label[] { verCap, loaderCap, sortCap, modDlTargetTip }) {
+        for (Label cap : new Label[] { verCap, loaderCap, catCap, sortCap, modDlTargetTip }) {
             cap.setMinWidth(Region.USE_PREF_SIZE);
         }
         modDlBrowseBtn.setMinWidth(Region.USE_PREF_SIZE);
@@ -3801,11 +3816,7 @@ public final class App extends Application {
         modDlPageBar = new HBox(6);
         modDlPageBar.setAlignment(Pos.CENTER);
 
-        /* ---- 分类选项区：两站共通分类单选 chips，紧跟筛选行下方 ---- */
-        modDlCatRow = new FlowPane(6, 6);
-        buildModCatChips();
-
-        modDlListContent = new VBox(10, searchRow, modDlFilterRow, modDlCatRow, modDlStatus, modDlCards, modDlPageBar);
+        modDlListContent = new VBox(10, searchRow, modDlFilterRow, modDlStatus, modDlCards, modDlPageBar);
         modDlScroll = new ScrollPane(modDlListContent);
         modDlScroll.setFitToWidth(true);
                 modDlScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -4449,24 +4460,12 @@ public final class App extends Application {
         }));
     }
 
-    /** 分类选项 chips：单选，「全部」= 不过滤；点选即回到第 1 页重新搜索 */
-    private void buildModCatChips() {
-        modDlCatRow.getChildren().clear();
-        String cur = modDlCategory == null ? "" : modDlCategory;
-        List<String[]> cats = new ArrayList<>();
-        cats.add(new String[]{ "全部", "" });
-        for (String[] row : MinecraftService.MOD_CATEGORIES) cats.add(row);
-        for (String[] c : cats) {
-            Button b = new Button(c[0]);
-            b.getStyleClass().add(c[1].equals(cur) ? "accent-btn" : "ghost-btn");
-            b.setOnAction(e -> {
-                modDlCategory = c[1];
-                modDlCurPage = 1;
-                buildModCatChips();
-                loadModPage();
-            });
-            modDlCatRow.getChildren().add(b);
-        }
+    /** 分类显示名 → Modrinth slug（「全部」或未知返回 "" = 不过滤） */
+    private static String categorySlug(String name) {
+        if (name == null || "全部".equals(name)) return "";
+        for (String[] row : MinecraftService.MOD_CATEGORIES)
+            if (row[0].equals(name)) return row[1];
+        return "";
     }
 
     /** 加载第 modDlCurPage 页 Mod 列表（每页 MOD_PAGE_SIZE 个，翻页时重新请求 API） */
