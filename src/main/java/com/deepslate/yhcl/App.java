@@ -320,6 +320,10 @@ public final class App extends Application {
     private VBox modDlCards;   // Mod 搜索结果卡片容器（与头部同在一个 ScrollPane 内滚动）
     private Label modDlStatus;
     private ScrollPane modDlScroll;      // 统一滚动容器（一级列表页 / 二级版本页切换内容）
+    /* ---- 收藏（模组/整合包/材质包/光影） ---- */
+    private final List<FavEntry> favList = new ArrayList<>();   // 持久化到 config.json
+    private VBox favPage, favCards;
+    private Label favStatus;
     private VBox modDlListContent;       // 一级页：搜索 + 过滤 + 卡片列表
     private HBox modDlFilterRow;         // 过滤行（进二级页时「下载到」控件会临时搬走）
     private HBox modDlPageBar;           // 分页栏：上一页 + 页码 + 下一页
@@ -331,7 +335,7 @@ public final class App extends Application {
     private Button modDlBrowseBtn;
     /* ---- 下载子模块：整合包 / 光影 / 材质包（共用一套构建逻辑） ---- */
     private PackDl packModpack, packShader, packRes;
-    private ToggleButton dlHubTabPack, dlHubTabShader, dlHubTabRes;
+    private ToggleButton dlHubTabPack, dlHubTabShader, dlHubTabRes, dlHubTabFav;
     private List<String> mcVerIds = List.of();   // 游戏版本清单缓存（填进各子模块版本下拉）
 
     /* ---- 版本设置页（单版本独立设置 + Mod 管理） ---- */
@@ -3185,13 +3189,15 @@ public final class App extends Application {
         dlHubTabPack = chipBtn("整合包", tabG, false);
         dlHubTabShader = chipBtn("光影", tabG, false);
         dlHubTabRes = chipBtn("材质包", tabG, false);
+        dlHubTabFav = chipBtn("收藏", tabG, false);
         dlHubTabVers.setOnAction(e -> switchDownloadHubTab("versions"));
         dlHubTabMods.setOnAction(e -> switchDownloadHubTab("mods"));
         dlHubTabPack.setOnAction(e -> switchDownloadHubTab("modpack"));
         dlHubTabShader.setOnAction(e -> switchDownloadHubTab("shader"));
         dlHubTabRes.setOnAction(e -> switchDownloadHubTab("resourcepack"));
+        dlHubTabFav.setOnAction(e -> switchDownloadHubTab("favorites"));
 
-        HBox tabs = new HBox(10, dlHubTabVers, dlHubTabMods, dlHubTabPack, dlHubTabShader, dlHubTabRes);
+        HBox tabs = new HBox(10, dlHubTabVers, dlHubTabMods, dlHubTabPack, dlHubTabShader, dlHubTabRes, dlHubTabFav);
         tabs.setAlignment(Pos.CENTER_LEFT);
 
         // 内容容器（StackPane：哪个子页 Tab 被选中就显示哪个）
@@ -3211,6 +3217,14 @@ public final class App extends Application {
     /** Tab 切换：显示 versionsPage 或 modDlPage */
     private void switchDownloadHubTab(String which) {
         if (downloadHubContentHolder == null) return;
+        if ("favorites".equals(which)) {
+            if (favPage == null) favPage = buildFavPage();
+            downloadHubContentHolder.getChildren().setAll(favPage);
+            animateIn(favPage);
+            crumb.setText("下载 / 收藏");
+            refreshFavPage();
+            return;
+        }
         if (!"mods".equals(which) && !"versions".equals(which)) { switchDownloadHubPack(which); return; }
         if ("mods".equals(which)) {
             downloadHubContentHolder.getChildren().setAll(modDlPage);
@@ -4003,7 +4017,10 @@ public final class App extends Application {
         String mcVer = st.mcVer == null ? "" : st.mcVer.getValue();
         if (mcVer != null && (mcVer.isBlank() || "全部".equals(mcVer) || "正在加载".equals(mcVer))) mcVer = null;
         String sort = st.sort == null ? "" : st.sort.getValue();
-        String index = "热度".equals(sort) ? "downloads"
+        boolean searching = q != null && !q.isBlank();
+        // 搜索时不用热度排序：按名称与搜索词的接近度排序（API 取回按 relevance，页内再按名称接近度重排）
+        String index = searching ? "relevance"
+                : "热度".equals(sort) ? "downloads"
                 : "最近更新".equals(sort) ? "updated"
                 : "最多收藏".equals(sort) ? "follows" : "relevance";
 
@@ -4023,11 +4040,12 @@ public final class App extends Application {
             }
             st.total = page.totalHits();
             List<MinecraftService.ModSearchResult> list = page.items();
+            if (searching) list = sortByTitleMatch(q, list);   // 搜索时按名称与搜索词的接近度排序（近的在前）
             if (list.isEmpty()) {
                 setPackPlaceholder(st, st.curPage > 1 ? "这一页没有内容，点上一页返回" : "没有找到匹配的" + st.label);
             } else {
                 st.cards.getChildren().clear();
-                for (MinecraftService.ModSearchResult r : list) st.cards.getChildren().add(modCard(r, () -> onPackOpenDetail(st, r)));
+                for (MinecraftService.ModSearchResult r : list) st.cards.getChildren().add(modCard(st.kind, r, () -> onPackOpenDetail(st, r)));
                 scheduleGlassApply();   // 新卡片套液态玻璃
             }
             buildPackPageBar(st);
@@ -4476,7 +4494,10 @@ public final class App extends Application {
         if (mcVer != null && (mcVer.isBlank() || "全部".equals(mcVer) || "正在加载".equals(mcVer))) mcVer = null;
         if (loader != null && (loader.isBlank() || "全部".equals(loader))) loader = null;
         String sort = modDlSort == null ? "" : modDlSort.getValue();
-        String index = "热度".equals(sort) ? "downloads"
+        boolean searching = q != null && !q.isBlank();
+        // 搜索时不用热度排序：按名称与搜索词的接近度排序（API 取回按 relevance，页内再按名称接近度重排）
+        String index = searching ? "relevance"
+                : "热度".equals(sort) ? "downloads"
                 : "最近更新".equals(sort) ? "updated"
                 : "最多收藏".equals(sort) ? "follows" : "relevance";
 
@@ -4496,11 +4517,12 @@ public final class App extends Application {
             }
             modDlTotal = page.totalHits();
             List<MinecraftService.ModSearchResult> list = page.items();
+            if (searching) list = sortByTitleMatch(q, list);   // 搜索时按名称与搜索词的接近度排序（近的在前）
             if (list.isEmpty()) {
                 setModDlPlaceholder(modDlCurPage > 1 ? "这一页没有内容，点上一页返回" : "没有找到匹配的 Mod");
             } else {
                 modDlCards.getChildren().clear();
-                for (MinecraftService.ModSearchResult r : list) modDlCards.getChildren().add(modCard(r, () -> onModOpenDetail(r)));
+                for (MinecraftService.ModSearchResult r : list) modDlCards.getChildren().add(modCard("mod", r, () -> onModOpenDetail(r)));
                 scheduleGlassApply();   // 新卡片套液态玻璃
             }
             buildModPageBar();
@@ -4977,8 +4999,8 @@ public final class App extends Application {
         return iso.substring(0, 10);
     }
 
-    /** Mod 搜索结果卡片（PCL2 风格）：大图标 + 标题/作者 + 简介 + 统计行 + 右侧下载按钮 */
-    private HBox modCard(MinecraftService.ModSearchResult item, Runnable onOpen) {
+    /** Mod 搜索结果卡片（PCL2 风格）：大图标 + 标题/作者 + 简介 + 统计行 + 右上角星形收藏键 + 右侧详情 */
+    private HBox modCard(String kind, MinecraftService.ModSearchResult item, Runnable onOpen) {
         ImageView icon = new ImageView();
         icon.setFitWidth(56);
         icon.setFitHeight(56);
@@ -5028,7 +5050,32 @@ public final class App extends Application {
         Label hintLbl = new Label("详情 ›");
         hintLbl.getStyleClass().addAll("muted", "small");
 
-        HBox box = new HBox(14, iconWrap, mid, hintLbl);
+        /* ---- 星形收藏键（卡片右上角）：空心=未收藏，点击收藏后变黄色实心星 ---- */
+        SVGPath star = new SVGPath();
+        star.setContent("M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.2l7.1-.6z");
+        star.setStrokeWidth(1.6);
+        star.setStrokeLineJoin(StrokeLineJoin.ROUND);
+        StackPane starWrap = new StackPane(star);
+        starWrap.setMinSize(30, 30);
+        starWrap.setPickOnBounds(true);   // 整块 30×30 都是点击热区
+        starWrap.setCursor(Cursor.HAND);
+        applyFavStar(star, kind, item);
+        starWrap.setOnMouseClicked(e -> {
+            e.consume();   // 别再触发卡片整行的打开详情
+            toggleFav(kind, item);
+            applyFavStar(star, kind, item);
+            // 收藏页里取消收藏后立即刷新列表
+            if (favPage != null && downloadHubContentHolder != null
+                    && downloadHubContentHolder.getChildren().contains(favPage)) refreshFavPage();
+        });
+
+        // 右列：星形钉在右上角，「详情 ›」垂直居中
+        StackPane rightCol = new StackPane(hintLbl, starWrap);
+        StackPane.setAlignment(starWrap, Pos.TOP_RIGHT);
+        StackPane.setAlignment(hintLbl, Pos.CENTER_RIGHT);
+        rightCol.setMinWidth(56);
+
+        HBox box = new HBox(14, iconWrap, mid, rightCol);
         box.setAlignment(Pos.CENTER_LEFT);
         box.setPadding(new Insets(14, 16, 14, 16));
         box.getStyleClass().add("mod-cell-card");
@@ -7888,7 +7935,177 @@ public final class App extends Application {
         public int downloadThreads = 64;         // 最大下载线程数 1~256
         public double speedLimitKb = 0;          // 全局下载速度上限 KB/s，0 = 无限制
         public boolean verifySsl = true;         // 正版登录时校验 SSL 证书
+        public List<FavEntry> favorites = List.of();  // 收藏（模组/整合包/材质包/光影）
         public Map<String, VerSetting> verSettings;
+    }
+
+    /** 收藏条目：ModSearchResult 快照 + 所属下载模块（kind = mod | modpack | shader | resourcepack） */
+    public static final class FavEntry {
+        public String kind = "mod";
+        public String projectId = "", cfProjectId = "", title = "", summary = "",
+                iconUrl = "", site = "", author = "", dateModified = "";
+        public long downloads = 0, follows = 0;
+        public List<String> categories = List.of(), mcVersions = List.of(), loaders = List.of();
+
+        MinecraftService.ModSearchResult toResult() {
+            return new MinecraftService.ModSearchResult(projectId, title, summary, iconUrl, site,
+                    author, downloads, follows, dateModified, categories, mcVersions, loaders, cfProjectId);
+        }
+
+        static FavEntry of(String kind, MinecraftService.ModSearchResult r) {
+            FavEntry e = new FavEntry();
+            e.kind = kind;
+            e.projectId = r.projectId();
+            e.cfProjectId = r.cfProjectId();
+            e.title = r.title();
+            e.summary = r.summary();
+            e.iconUrl = r.iconUrl();
+            e.site = r.site();
+            e.author = r.author();
+            e.downloads = r.downloads();
+            e.follows = r.follows();
+            e.dateModified = r.dateModified();
+            e.categories = r.categories();
+            e.mcVersions = r.mcVersions();
+            e.loaders = r.loaders();
+            return e;
+        }
+    }
+
+    /** 收藏键：kind + 项目 id（Modrinth 优先，CF 条目用 cfProjectId） */
+    private static String favKey(String kind, MinecraftService.ModSearchResult r) {
+        String id = r.projectId() == null || r.projectId().isBlank() ? r.cfProjectId() : r.projectId();
+        return kind + "|" + id;
+    }
+
+    private boolean isFav(String kind, MinecraftService.ModSearchResult r) {
+        String key = favKey(kind, r);
+        synchronized (favList) {
+            return favList.stream().anyMatch(f -> favKey(f.kind, f.toResult()).equals(key));
+        }
+    }
+
+    private void toggleFav(String kind, MinecraftService.ModSearchResult r) {
+        String key = favKey(kind, r);
+        synchronized (favList) {
+            boolean[] removed = { false };
+            favList.removeIf(f -> {
+                if (favKey(f.kind, f.toResult()).equals(key)) { removed[0] = true; return true; }
+                return false;
+            });
+            if (!removed[0]) favList.add(FavEntry.of(kind, r));
+        }
+        saveConfig();
+    }
+
+    /** 应用星形收藏键外观：已收藏=黄色实心星，未收藏=空心星 */
+    private void applyFavStar(SVGPath star, String kind, MinecraftService.ModSearchResult item) {
+        if (isFav(kind, item)) {
+            star.setFill(Color.web("#FFC93C"));   // 黄色实心
+            star.setStroke(Color.web("#FFC93C"));
+        } else {
+            star.setFill(Color.TRANSPARENT);      // 空心
+            star.setStroke(Color.web("#8fa3b0"));
+        }
+    }
+
+    /* ==================== 收藏页（下载模块子页） ==================== */
+
+    /** 收藏页：列出全部已收藏的模组/整合包/材质包/光影，点卡片进详情，点星形取消收藏 */
+    private VBox buildFavPage() {
+        Label title = new Label("我的收藏");
+        title.getStyleClass().add("h2");
+        Label tip = new Label("在 Mod / 整合包 / 材质包 / 光影卡片右上角点星形按钮收藏，再点一次取消");
+        tip.getStyleClass().addAll("muted", "small");
+        favStatus = new Label("");
+        favStatus.getStyleClass().addAll("muted", "small");
+        favCards = new VBox(10);
+
+        VBox content = new VBox(10, title, tip, favStatus, favCards);
+        content.setPadding(new Insets(2, 2, 12, 2));
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        makeScrollbarAutoHide(scroll);
+        trackGlassScroll(scroll);
+
+        VBox panel = new VBox(scroll);
+        panel.getStyleClass().add("panel");
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+        VBox.setVgrow(panel, Priority.ALWAYS);
+        return panel;
+    }
+
+    /** 重建收藏列表卡片（进入收藏页或收藏变化后调用） */
+    private void refreshFavPage() {
+        if (favCards == null) return;
+        List<FavEntry> items;
+        synchronized (favList) { items = new ArrayList<>(favList); }
+        favCards.getChildren().clear();
+        if (items.isEmpty()) {
+            favStatus.setText("");
+            Label ph = new Label("暂无收藏：点下载卡片右上角的星形按钮即可收藏");
+            ph.getStyleClass().addAll("muted", "small");
+            favCards.getChildren().add(ph);
+            return;
+        }
+        favStatus.setText("共 " + items.size() + " 个收藏");
+        for (FavEntry f : items) {
+            MinecraftService.ModSearchResult r = f.toResult();
+            favCards.getChildren().add(modCard(f.kind, r, () -> onFavOpenDetail(f.kind, r)));
+        }
+        scheduleGlassApply();   // 新卡片套液态玻璃
+    }
+
+    /** 从收藏页打开详情：先切到对应下载子模块，再进二级详情页 */
+    private void onFavOpenDetail(String kind, MinecraftService.ModSearchResult r) {
+        if ("mod".equals(kind)) {
+            switchDownloadHubTab("mods");
+            Platform.runLater(() -> onModOpenDetail(r));
+        } else {
+            switchDownloadHubPack(kind);
+            Platform.runLater(() -> onPackOpenDetail(packFor(kind), r));
+        }
+    }
+
+    /** 搜索结果重排：按标题与搜索词的接近度降序（完全匹配 > 前缀 > 包含 > 编辑距离近），近的在前 */
+    private static List<MinecraftService.ModSearchResult> sortByTitleMatch(String query,
+            List<MinecraftService.ModSearchResult> list) {
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (q.isEmpty() || list == null || list.size() < 2) return list;
+        List<MinecraftService.ModSearchResult> out = new ArrayList<>(list);
+        out.sort((a, b) -> Double.compare(titleCloseness(q, b.title()), titleCloseness(q, a.title())));
+        return out;
+    }
+
+    /** 标题与搜索词的接近度得分（越大越近）：完全匹配 > 前缀 > 包含 > 公共前缀/编辑距离 */
+    private static double titleCloseness(String qLower, String title) {
+        String t = title == null ? "" : title.trim().toLowerCase(Locale.ROOT);
+        if (t.isEmpty()) return -1;
+        if (t.equals(qLower)) return 1000;
+        if (t.startsWith(qLower)) return 800 - Math.min(300, t.length() - qLower.length());
+        if (t.contains(qLower)) return 600 - Math.min(300, t.indexOf(qLower));
+        // 否则按公共前缀长度 + 编辑距离倒数粗略评分
+        int p = 0, n = Math.min(qLower.length(), t.length());
+        while (p < n && qLower.charAt(p) == t.charAt(p)) p++;
+        double dist = editDistance(qLower, t);
+        return p * 2.0 + 200.0 / (1.0 + dist);
+    }
+
+    /** 简单编辑距离（Levenshtein），两词较短，直接 DP */
+    private static int editDistance(String a, String b) {
+        int[] prev = new int[b.length() + 1];
+        int[] cur = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) prev[j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            cur[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] tmp = prev; prev = cur; cur = tmp;
+        }
+        return prev[b.length()];
     }
 
     private void loadConfig() {
@@ -7931,6 +8148,12 @@ public final class App extends Application {
                 if (accountType.isBlank() && !accountToken.isBlank()) accountType = "microsoft";
                 authApi = c.authApi == null ? "" : c.authApi;
                 authClientToken = c.authClientToken == null ? "" : c.authClientToken;
+
+                // 收藏（模组/整合包/材质包/光影）
+                synchronized (favList) {
+                    favList.clear();
+                    if (c.favorites != null) for (FavEntry f : c.favorites) if (f != null) favList.add(f);
+                }
 
                 // frp 配置
                 String savedKey = c.frpAccessKey == null ? "" : c.frpAccessKey;
@@ -8090,6 +8313,7 @@ public final class App extends Application {
             c.customBgFile = customBgFile;
             c.customBgDim = customBgDim;
             c.verSettings = verSettings;
+            synchronized (favList) { c.favorites = new ArrayList<>(favList); }
             mapper.writerWithDefaultPrettyPrinter().writeValue(CONFIG.toFile(), c);
         } catch (Exception ex) {
             log("保存配置失败：" + ex.getMessage());
