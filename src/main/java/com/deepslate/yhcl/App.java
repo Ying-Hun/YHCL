@@ -5000,7 +5000,7 @@ public final class App extends Application {
     }
 
     /** Mod 搜索结果卡片（PCL2 风格）：大图标 + 标题/作者 + 简介 + 统计行 + 右上角星形收藏键 + 右侧详情 */
-    private HBox modCard(String kind, MinecraftService.ModSearchResult item, Runnable onOpen) {
+    private StackPane modCard(String kind, MinecraftService.ModSearchResult item, Runnable onOpen) {
         ImageView icon = new ImageView();
         icon.setFitWidth(56);
         icon.setFitHeight(56);
@@ -5050,7 +5050,9 @@ public final class App extends Application {
         Label hintLbl = new Label("详情 ›");
         hintLbl.getStyleClass().addAll("muted", "small");
 
-        /* ---- 星形收藏键（卡片右上角）：空心=未收藏，点击收藏后变黄色实心星 ---- */
+        /* ---- 星形收藏键（悬浮在卡片右上角）：
+           未收藏：默认隐藏，鼠标悬停该卡片时显示空心星；
+           已收藏：常驻黄色实心星。 ---- */
         SVGPath star = new SVGPath();
         star.setContent("M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.2l7.1-.6z");
         star.setStrokeWidth(1.6);
@@ -5064,18 +5066,13 @@ public final class App extends Application {
             e.consume();   // 别再触发卡片整行的打开详情
             toggleFav(kind, item);
             applyFavStar(star, kind, item);
+            starWrap.setVisible(isFav(kind, item) || starWrap.isHover());
             // 收藏页里取消收藏后立即刷新列表
             if (favPage != null && downloadHubContentHolder != null
                     && downloadHubContentHolder.getChildren().contains(favPage)) refreshFavPage();
         });
 
-        // 右列：星形钉在右上角，「详情 ›」垂直居中
-        StackPane rightCol = new StackPane(hintLbl, starWrap);
-        StackPane.setAlignment(starWrap, Pos.TOP_RIGHT);
-        StackPane.setAlignment(hintLbl, Pos.CENTER_RIGHT);
-        rightCol.setMinWidth(56);
-
-        HBox box = new HBox(14, iconWrap, mid, rightCol);
+        HBox box = new HBox(14, iconWrap, mid, hintLbl);
         box.setAlignment(Pos.CENTER_LEFT);
         box.setPadding(new Insets(14, 16, 14, 16));
         box.getStyleClass().add("mod-cell-card");
@@ -5083,11 +5080,19 @@ public final class App extends Application {
         // 单击卡片进入二级页（Mod 简介 + 版本列表），在二级页里选版本下载
         box.setOnMouseClicked(e -> onOpen.run());
 
+        // 星形悬浮层钉在卡片右上角：已收藏常驻显示，未收藏仅悬停时出现
+        StackPane card = new StackPane(box, starWrap);
+        StackPane.setAlignment(starWrap, Pos.TOP_RIGHT);
+        StackPane.setMargin(starWrap, new Insets(5, 12, 0, 0));
+        starWrap.setVisible(isFav(kind, item));
+        card.hoverProperty().addListener((o, was, now) ->
+                starWrap.setVisible(now || isFav(kind, item)));
+
         // 异步加载图标
         if (item.iconUrl() != null && !item.iconUrl().isBlank()) {
             loadModIcon(item.iconUrl(), icon);
         }
-        return box;
+        return card;
     }
 
     /* ==================== Mod 图标加载 ====================
