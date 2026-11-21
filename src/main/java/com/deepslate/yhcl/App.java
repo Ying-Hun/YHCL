@@ -5059,6 +5059,7 @@ public final class App extends Application {
         star.setStrokeLineJoin(StrokeLineJoin.ROUND);
         StackPane starWrap = new StackPane(star);
         starWrap.setMinSize(30, 30);
+        starWrap.setMaxSize(30, 30);   // 不加 max 会被 StackPane 拉伸填满卡片，星形跟着跑到正中
         starWrap.setPickOnBounds(true);   // 整块 30×30 都是点击热区
         starWrap.setCursor(Cursor.HAND);
         applyFavStar(star, kind, item);
