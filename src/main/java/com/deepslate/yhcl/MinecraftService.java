@@ -1437,7 +1437,14 @@ public final class MinecraftService {
         // 刚在上一步装好，加载器的 prepare 又把原版客户端/库/资源整套收进清单，会让
         // 监控器显示成「原版被重复下载一遍」。这里只保留缺漏或损坏的文件（完好的下载
         // 本就会被跳过，损坏的仍会重下修复），让清单只列真正要下的，装加载器就只下加载器。
-        jobs.removeIf(MinecraftService::intact);
+        // 但带 after 回调的任务（natives 解压、虚拟资源映射）文件完整也要执行回调：
+        // 回调产物目录可能整个缺失（如 PCL 全量游戏包只带全量 libraries 不带 natives），
+        // 漏掉解压启动会报 UnsatisfiedLinkError: no lwjgl64 in java.library.path。
+        jobs.removeIf(j -> {
+            boolean ok = intact(j);
+            if (ok && j.after != null) j.after.run();
+            return ok;
+        });
 
         int total = jobs.size();
         int done = 0;
