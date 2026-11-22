@@ -129,9 +129,12 @@ public final class JavaLocator {
 
     public static void clearCache() { cache = null; }
 
-    /** 运行 Mod 必需的模块：Mixin 内嵌 Gson 引用 java.sql.Time，裁掉 java.sql 启动即崩 */
+    /** 运行 Mod 必需的模块：Mixin 内嵌 Gson 引用 java.sql.Time，裁掉 java.sql 启动即崩；
+     *  jdk.dynalink 是整合包自带的 nashorn（org.openjdk.nashorn）requires 的模块，
+     *  裁剪版运行时缺它会在 BootstrapLauncher 解析模块图时 FindException 直接崩 */
     private static final List<String> REQUIRED_MODULES =
-            List.of("java.sql", "java.desktop", "java.naming", "java.management", "jdk.unsupported");
+            List.of("java.sql", "java.desktop", "java.naming", "java.management", "jdk.unsupported",
+                    "jdk.dynalink");
 
     private static final Map<Path, Boolean> completeCache = new HashMap<>();
 
