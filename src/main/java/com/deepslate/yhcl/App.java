@@ -2983,10 +2983,10 @@ public final class App extends Application {
         return ok > 0;
     }
 
-    /** 拖入整合包压缩包：解析并自动下载安装（接入下载监控悬浮球）。支持 Modrinth .mrpack 与 CurseForge manifest.json 的 zip */
+    /** 拖入整合包压缩包：解析并自动下载安装（接入下载监控悬浮球）。支持 Modrinth .mrpack、CurseForge manifest.json 的 zip 与 PCL 全量游戏包 */
     private void handleDroppedModpack(Path archive) {
         if (!MinecraftService.looksLikeModpack(archive)) {
-            showToast("无法识别整合包格式：需要 .mrpack，或含 modrinth.index.json / manifest.json 的 zip", true);
+            showToast("无法识别整合包格式：支持 .mrpack、含 modrinth.index.json / manifest.json 的 zip、PCL 全量游戏包", true);
             return;
         }
         if (mc.monitor.running()) {

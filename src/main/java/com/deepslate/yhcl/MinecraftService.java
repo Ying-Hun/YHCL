@@ -3952,7 +3952,8 @@ public final class MinecraftService {
         }
     }
 
-    /** 是否为整合包压缩包：.mrpack，或含 modrinth.index.json / manifest.json 的 zip */
+    /** 是否为整合包压缩包：.mrpack，或含 modrinth.index.json / modpack.mrpack / manifest.json 的 zip，
+     *  或 PCL 全量游戏包（.minecraft/versions/&lt;版本名&gt;/ 整包结构的懒人包） */
     public static boolean looksLikeModpack(Path p) {
         String n = p.getFileName().toString().toLowerCase();
         if (n.endsWith(".mrpack")) return true;
@@ -3960,7 +3961,8 @@ public final class MinecraftService {
         try (ZipFile zf = openZip(p.toFile())) {
             return zf.getEntry("modrinth.index.json") != null
                     || zf.getEntry("modpack.mrpack") != null
-                    || zf.getEntry("manifest.json") != null;
+                    || zf.getEntry("manifest.json") != null
+                    || findFullPackVersion(zf) != null;
         } catch (Exception e) {
             return false;
         }
@@ -3970,6 +3972,7 @@ public final class MinecraftService {
      * 安装整合包压缩包到当前游戏目录（接入下载监控，悬浮球/详情页可见进度）：
      *  - Modrinth 格式（.mrpack 或含 modrinth.index.json 的 zip）：按索引并行下载文件（SHA1 校验）+ 解压 overrides
      *  - CurseForge 格式（manifest.json）：解析文件清单下载 mods + 解压 overrides + 安装加载器生成版本
+     *  - PCL 全量游戏包（versions/&lt;版本名&gt;/ 整包结构）：版本 json+jar+游戏目录内容整体解压，合并 assets/libraries
      *  - 其他 zip：解压其中的 mods/config/resourcepacks/shaderpacks 目录
      */
     public CompletableFuture<ModpackResult> installModpack(Path archive, Consumer<String> log) {
@@ -3995,7 +3998,8 @@ public final class MinecraftService {
                 } else if (zf.getEntry("manifest.json") != null) {
                     res = installCurseForgePack(zf, zf.getEntry("manifest.json"), log);
                 } else {
-                    res = installPlainZip(zf, log);
+                    String fullVer = findFullPackVersion(zf);
+                    res = fullVer != null ? installFullGamePack(zf, fullVer, log) : installPlainZip(zf, log);
                 }
             } catch (Exception e) {
                 monitor.finishFail(e.getMessage() == null ? e.toString() : e.getMessage());
@@ -4532,5 +4536,117 @@ public final class MinecraftService {
         }
         log.accept("普通压缩包：解压 " + count + " 个文件（仅 mods/config/资源包/光影包 目录）");
         return new ModpackResult(count, 0, count, "", "");
+    }
+
+    /** 归一化 zip 条目名：反斜杠转正斜杠 */
+    private static String zipName(ZipEntry e) {
+        return e.getName().replace('\\', '/');
+    }
+
+    /**
+     * PCL 全量游戏包（懒人包）检测：zip 内 .minecraft/versions/&lt;版本名&gt;/&lt;版本名&gt;.json 结构
+     * （版本 json+jar 与游戏目录内容混放在版本目录里，配套全量 assets/、libraries/）。
+     * 返回主版本目录名，优先取「json 与目录同名且非纯数字原版号」的目录（整合包版本）；不是该格式返回 null。
+     */
+    private static String findFullPackVersion(ZipFile zf) {
+        Pattern p = Pattern.compile("^(?:\\.?minecraft/)?versions/([^/]+)/([^/]+)\\.json$");
+        String named = null, first = null;
+        Enumeration<? extends ZipEntry> en = zf.entries();
+        while (en.hasMoreElements()) {
+            ZipEntry e = en.nextElement();
+            if (e.isDirectory()) continue;
+            Matcher m = p.matcher(zipName(e));
+            if (!m.matches()) continue;
+            String dir = m.group(1), base = m.group(2);
+            if (first == null) first = dir;
+            if (dir.equals(base)) {
+                if (!dir.matches("\\d+(\\.\\d+)*")) return dir;
+                if (named == null) named = dir;
+            }
+        }
+        return named != null ? named : first;
+    }
+
+    /** 全量游戏包版本目录里的运行垃圾：PCL 缓存、作者日志/崩溃报告/JVM 崩溃转储/用户缓存 */
+    private static boolean fullPackJunk(String rel) {
+        int slash = rel.indexOf('/');
+        String first = slash < 0 ? rel : rel.substring(0, slash);
+        return first.equals("logs") || first.equals("crash-reports") || first.equals("PCL")
+                || first.endsWith("-natives") || first.startsWith("hs_err")
+                || rel.equals("usercache.json") || rel.equals("usernamecache.json");
+    }
+
+    /**
+     * PCL 全量游戏包（懒人包）安装：
+     *  - versions/&lt;包名&gt;/（版本 json+jar + mods/config/saves 等游戏目录内容）整体解到
+     *    gameDir/versions/&lt;包名&gt;/——与整合包版本隔离目录布局一致，装好后开版本隔离即可直接玩；
+     *    顺带解出 inheritsFrom 指向的原版版本目录
+     *  - assets/、libraries/ 合并到游戏目录（内容寻址，已存在且大小一致的跳过）
+     *  - 根目录游戏内容（mods/config 等旧式懒人包布局）解到该版本的隔离目录
+     *  - 跳过 PCL 启动器自身文件、launcher_profiles.json（含他人登录凭证）与运行垃圾
+     * 版本 json/jar 统一改名为 &lt;包名&gt;.json/.jar（启动器按 &lt;id&gt;/&lt;id&gt;.json 定位），并同步 json 的 id 字段。
+     */
+    private ModpackResult installFullGamePack(ZipFile zf, String verName, Consumer<String> log) throws IOException {
+        String safeName = packDirName(verName);
+        if (safeName.isBlank()) safeName = verName;
+        Path isoDir = gameDir.resolve("versions").resolve(safeName);   // 根目录内容的落点（版本隔离目录）
+        String[] rootDirs = {"mods/", "config/", "resourcepacks/", "shaderpacks/", "saves/",
+                "datapacks/", "kubejs/", "scripts/", "defaultconfigs/", "journeymap/", "schematics/"};
+        String[] rootFiles = {"options.txt", "optionsof.txt", "optionsshaders.txt", "servers.dat"};
+        monitor.setPhase(Phase.INSTALL, "解压全量游戏包");
+        int count = 0;
+        Enumeration<? extends ZipEntry> en = zf.entries();
+        while (en.hasMoreElements()) {
+            ZipEntry e = en.nextElement();
+            if (e.isDirectory()) continue;
+            String n = zipName(e);
+            if (n.startsWith(".minecraft/")) n = n.substring(".minecraft/".length());
+            else if (n.startsWith("minecraft/")) n = n.substring("minecraft/".length());
+            Path target;
+            if (n.startsWith("assets/") || n.startsWith("libraries/")) {
+                target = gameDir.resolve(n).normalize();
+                if (!target.startsWith(gameDir)) continue;
+                if (Files.exists(target) && Files.size(target) == e.getSize()) continue;
+            } else if (n.startsWith("versions/")) {
+                String rel = n.substring("versions/".length());
+                int slash = rel.indexOf('/');
+                if (slash < 0) continue;
+                String vdir = rel.substring(0, slash), rest = rel.substring(slash + 1);
+                if (fullPackJunk(rest)) continue;
+                if (vdir.equals(verName) && rest.indexOf('/') < 0) {
+                    // 版本 json/jar 文件名统一为版本目录名，否则启动器找不到 <id>/<id>.json
+                    if (rest.endsWith(".json")) rest = safeName + ".json";
+                    else if (rest.endsWith(".jar")) rest = safeName + ".jar";
+                }
+                String outDir = vdir.equals(verName) ? safeName : vdir;
+                target = gameDir.resolve("versions").resolve(outDir).resolve(rest).normalize();
+                if (!target.startsWith(gameDir)) continue;
+            } else {
+                boolean hit = false;
+                for (String p : rootDirs) if (n.startsWith(p)) { hit = true; break; }
+                if (!hit) for (String p : rootFiles) if (n.equals(p)) { hit = true; break; }
+                if (!hit) continue;   // PCL 启动器本体/配置、地图备份等杂项不解压
+                target = isoDir.resolve(n).normalize();
+                if (!target.startsWith(gameDir)) continue;
+            }
+            Files.createDirectories(target.getParent());
+            try (InputStream in = zf.getInputStream(e)) {
+                Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            count++;
+        }
+        // 版本 json 的 id 字段与目录名一致化，避免启动参数里的版本名与实际版本对不上
+        Path json = gameDir.resolve("versions").resolve(safeName).resolve(safeName + ".json");
+        if (Files.exists(json)) {
+            try {
+                JsonNode node = MAPPER.readTree(json.toFile());
+                if (node instanceof ObjectNode obj && !safeName.equals(obj.path("id").asText(""))) {
+                    obj.put("id", safeName);
+                    MAPPER.writeValue(json.toFile(), obj);
+                }
+            } catch (Exception ignored) { }
+        }
+        log.accept("全量游戏包：已安装版本 " + safeName + "，解压 " + count + " 个文件");
+        return new ModpackResult(count, 0, count, "", safeName);
     }
 }
