@@ -1414,6 +1414,8 @@ public final class MinecraftService {
 
         // 1.12 及以前：natives 是带 classifier 的 jar（纯 natives 库没有主件），要下载分类器 jar 并解压。
         // 这里直接遍历原始清单：纯 natives 库不在 resolveLibraries 结果里
+        // （库重复声明时同一分类器 jar 会被收进两次，同样去重）
+        Set<String> seenNar = new HashSet<>();
         for (JsonNode lib : root.path("libraries")) {
             if (!rulesAllow(lib)) continue;
             String classifier = lib.path("natives").path("windows").asText("");
@@ -1421,6 +1423,7 @@ public final class MinecraftService {
             if (!classifier.isEmpty() && nar.has("path")) {
                 Path dest = gameDir.resolve("libraries")
                         .resolve(nar.path("path").asText().replace('/', File.separatorChar));
+                if (!seenNar.add(dest.toString().toLowerCase(Locale.ROOT))) continue;
                 List<String> urls = List.of(nar.has("url") && !nar.path("url").asText().isBlank()
                         ? nar.path("url").asText()
                         : "https://libraries.minecraft.net/" + nar.path("path").asText());
@@ -1987,6 +1990,13 @@ public final class MinecraftService {
                 } catch (Exception ignored) { }
             }
         }
+        // 同一个库在 json 里被重复声明（整合包把加载器/原版 json 合并成自包含时常见）：
+        // classpath 里同一 jar 出现两次，BootstrapLauncher 给模块建 UnionFileSystem 时
+        // 同路径元数据合并会报 IllegalStateException: Duplicate key 直接崩。
+        // 按目标文件去重（Windows 路径大小写不敏感），保留先声明的条目。
+        Map<String, Lib> uniq = new LinkedHashMap<>();
+        for (Lib l : out) uniq.putIfAbsent(l.dest().toString().toLowerCase(Locale.ROOT), l);
+        out = new ArrayList<>(uniq.values());
         // OptiFine 作为库加载时 jar 里内嵌了过时的 FML 桩类（如 RegistryDelegate），
         // 排在 Forge 前会抢先加载桩类，报 NoSuchMethodError: ...getResourceName()；
         // 稳定移到库列表末尾（客户端 jar 仍在其后，OptiFine 的原版补丁照常生效），让真 Forge 类优先。
