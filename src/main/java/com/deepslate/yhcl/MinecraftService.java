@@ -1987,6 +1987,20 @@ public final class MinecraftService {
                 } catch (Exception ignored) { }
             }
         }
+        // OptiFine 作为库加载时 jar 里内嵌了过时的 FML 桩类（如 RegistryDelegate），
+        // 排在 Forge 前会抢先加载桩类，报 NoSuchMethodError: ...getResourceName()；
+        // 稳定移到库列表末尾（客户端 jar 仍在其后，OptiFine 的原版补丁照常生效），让真 Forge 类优先。
+        if (!out.isEmpty()) {
+            List<Lib> tail = new ArrayList<>();
+            for (Iterator<Lib> it = out.iterator(); it.hasNext(); ) {
+                Lib l = it.next();
+                if (l.raw.path("name").asText("").toLowerCase(Locale.ROOT).startsWith("optifine")) {
+                    tail.add(l);
+                    it.remove();
+                }
+            }
+            out.addAll(tail);
+        }
         return out;
     }
 
