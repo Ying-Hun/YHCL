@@ -2947,7 +2947,11 @@ public final class App extends Application {
         scene.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
             List<File> jars = jarFiles(e.getDragboard());
             List<File> packs = packFiles(e.getDragboard());
-            if (jars.isEmpty() && packs.isEmpty()) return;
+            if (jars.isEmpty() && packs.isEmpty()) {
+                if (e.getDragboard().hasFiles())
+                    showToast("未识别到可安装的文件，支持 .jar / .zip / .mrpack 或只含一个压缩包的文件夹", true);
+                return;
+            }
             boolean ok = jars.isEmpty() || handleDroppedMods(jars);
             for (File p : packs) handleDroppedModpack(p.toPath());
             e.setDropCompleted(ok);
@@ -3029,15 +3033,33 @@ public final class App extends Application {
 
     private static boolean hasDroppable(Dragboard db) {
         if (!db.hasFiles()) return false;
-        return db.getFiles().stream().anyMatch(f -> {
+        return db.getFiles().stream().map(App::packShell).anyMatch(f -> {
             String n = f.getName().toLowerCase(Locale.ROOT);
             return n.endsWith(".jar") || n.endsWith(".zip") || n.endsWith(".mrpack");
         });
     }
 
+    /** 回收站还原等场景会出现「文件夹壳」：同名文件夹（名字常以 .zip 结尾）里装着真正的压缩包，
+     *  拖入这种壳时自动深入到里面唯一的压缩包；找不到唯一压缩包就原样返回 */
+    private static File packShell(File f) {
+        if (!f.isDirectory()) return f;
+        File[] kids = f.listFiles();
+        if (kids == null) return f;
+        File found = null;
+        for (File x : kids) {
+            String n = x.getName().toLowerCase(Locale.ROOT);
+            if (x.isFile() && (n.endsWith(".zip") || n.endsWith(".mrpack") || n.endsWith(".jar"))) {
+                if (found != null) return f;   // 里面不止一个压缩包，不猜
+                found = x;
+            }
+        }
+        return found != null ? found : f;
+    }
+
     private static List<File> jarFiles(Dragboard db) {
         if (!db.hasFiles()) return List.of();
         return db.getFiles().stream()
+                .map(App::packShell)
                 .filter(File::isFile)
                 .filter(f -> f.getName().toLowerCase(Locale.ROOT).endsWith(".jar"))
                 .toList();
@@ -3046,6 +3068,7 @@ public final class App extends Application {
     private static List<File> packFiles(Dragboard db) {
         if (!db.hasFiles()) return List.of();
         return db.getFiles().stream()
+                .map(App::packShell)
                 .filter(File::isFile)
                 .filter(f -> {
                     String n = f.getName().toLowerCase(Locale.ROOT);

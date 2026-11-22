@@ -3983,7 +3983,7 @@ public final class MinecraftService {
             return zf.getEntry("modrinth.index.json") != null
                     || zf.getEntry("modpack.mrpack") != null
                     || zf.getEntry("manifest.json") != null
-                    || findFullPackVersion(zf) != null;
+                    || findFullPack(zf) != null;
         } catch (Exception e) {
             return false;
         }
@@ -4019,8 +4019,8 @@ public final class MinecraftService {
                 } else if (zf.getEntry("manifest.json") != null) {
                     res = installCurseForgePack(zf, zf.getEntry("manifest.json"), log);
                 } else {
-                    String fullVer = findFullPackVersion(zf);
-                    res = fullVer != null ? installFullGamePack(zf, fullVer, log) : installPlainZip(zf, log);
+                    FullPack fp = findFullPack(zf);
+                    res = fp != null ? installFullGamePack(zf, fp, log) : installPlainZip(zf, log);
                 }
             } catch (Exception e) {
                 monitor.finishFail(e.getMessage() == null ? e.toString() : e.getMessage());
@@ -4564,25 +4564,30 @@ public final class MinecraftService {
         return e.getName().replace('\\', '/');
     }
 
+    /** 全量游戏包定位结果：prefix = zip 内游戏目录前缀（如 "零大陆Next/.minecraft/"，可为空），
+     *  version = 主版本目录名，json = 该目录里版本 json 的文件名（仅此文件允许改名） */
+    private record FullPack(String prefix, String version, String json) {}
+
     /**
-     * PCL 全量游戏包（懒人包）检测：zip 内 .minecraft/versions/&lt;版本名&gt;/&lt;版本名&gt;.json 结构
+     * PCL 全量游戏包（懒人包）检测：zip 内 versions/&lt;版本名&gt;/&lt;版本名&gt;.json 结构
      * （版本 json+jar 与游戏目录内容混放在版本目录里，配套全量 assets/、libraries/）。
-     * 返回主版本目录名，优先取「json 与目录同名且非纯数字原版号」的目录（整合包版本）；不是该格式返回 null。
+     * 允许任意外层包装目录（如 零大陆Next/.minecraft/）。优先取「json 与目录同名且非纯数字原版号」
+     * 的目录（整合包版本）；不是该格式返回 null。
      */
-    private static String findFullPackVersion(ZipFile zf) {
-        Pattern p = Pattern.compile("^(?:\\.?minecraft/)?versions/([^/]+)/([^/]+)\\.json$");
-        String named = null, first = null;
+    private static FullPack findFullPack(ZipFile zf) {
+        Pattern p = Pattern.compile("^((?:(?:.+/)?\\.?minecraft/|.+/)?)versions/([^/]+)/([^/]+)\\.json$");
+        FullPack named = null, first = null;
         Enumeration<? extends ZipEntry> en = zf.entries();
         while (en.hasMoreElements()) {
             ZipEntry e = en.nextElement();
             if (e.isDirectory()) continue;
             Matcher m = p.matcher(zipName(e));
             if (!m.matches()) continue;
-            String dir = m.group(1), base = m.group(2);
-            if (first == null) first = dir;
-            if (dir.equals(base)) {
-                if (!dir.matches("\\d+(\\.\\d+)*")) return dir;
-                if (named == null) named = dir;
+            FullPack fp = new FullPack(m.group(1), m.group(2), m.group(3) + ".json");
+            if (first == null) first = fp;
+            if (m.group(2).equals(m.group(3))) {
+                if (!m.group(2).matches("\\d+(\\.\\d+)*")) return fp;
+                if (named == null) named = fp;
             }
         }
         return named != null ? named : first;
@@ -4605,9 +4610,11 @@ public final class MinecraftService {
      *  - assets/、libraries/ 合并到游戏目录（内容寻址，已存在且大小一致的跳过）
      *  - 根目录游戏内容（mods/config 等旧式懒人包布局）解到该版本的隔离目录
      *  - 跳过 PCL 启动器自身文件、launcher_profiles.json（含他人登录凭证）与运行垃圾
-     * 版本 json/jar 统一改名为 &lt;包名&gt;.json/.jar（启动器按 &lt;id&gt;/&lt;id&gt;.json 定位），并同步 json 的 id 字段。
+     * 版本 json（及其同名 jar）统一改名为 &lt;包名&gt;.json/.jar（启动器按 &lt;id&gt;/&lt;id&gt;.json 定位），并同步 json 的 id 字段。
      */
-    private ModpackResult installFullGamePack(ZipFile zf, String verName, Consumer<String> log) throws IOException {
+    private ModpackResult installFullGamePack(ZipFile zf, FullPack fp, Consumer<String> log) throws IOException {
+        String verName = fp.version();
+        String prefix = fp.prefix();
         String safeName = packDirName(verName);
         if (safeName.isBlank()) safeName = verName;
         Path isoDir = gameDir.resolve("versions").resolve(safeName);   // 根目录内容的落点（版本隔离目录）
@@ -4621,6 +4628,11 @@ public final class MinecraftService {
             ZipEntry e = en.nextElement();
             if (e.isDirectory()) continue;
             String n = zipName(e);
+            if (!prefix.isEmpty()) {
+                // 只解游戏目录（前缀）里的内容，包装目录里的说明书/启动器等杂项不解压
+                if (!n.startsWith(prefix)) continue;
+                n = n.substring(prefix.length());
+            }
             if (n.startsWith(".minecraft/")) n = n.substring(".minecraft/".length());
             else if (n.startsWith("minecraft/")) n = n.substring("minecraft/".length());
             Path target;
@@ -4635,9 +4647,11 @@ public final class MinecraftService {
                 String vdir = rel.substring(0, slash), rest = rel.substring(slash + 1);
                 if (fullPackJunk(rest)) continue;
                 if (vdir.equals(verName) && rest.indexOf('/') < 0) {
-                    // 版本 json/jar 文件名统一为版本目录名，否则启动器找不到 <id>/<id>.json
-                    if (rest.endsWith(".json")) rest = safeName + ".json";
-                    else if (rest.endsWith(".jar")) rest = safeName + ".jar";
+                    // 仅版本 json（及其同名 jar）文件名统一为版本目录名，否则启动器找不到 <id>/<id>.json；
+                    // 同目录其他深度 1 json（如 TrashSlotSaveState.json）是游戏目录配置，保持原名防止覆盖
+                    String base = fp.json().substring(0, fp.json().length() - ".json".length());
+                    if (rest.equals(fp.json())) rest = safeName + ".json";
+                    else if (rest.equals(base + ".jar")) rest = safeName + ".jar";
                 }
                 String outDir = vdir.equals(verName) ? safeName : vdir;
                 target = gameDir.resolve("versions").resolve(outDir).resolve(rest).normalize();
