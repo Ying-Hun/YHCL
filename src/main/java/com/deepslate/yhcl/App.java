@@ -2047,7 +2047,7 @@ public final class App extends Application {
     /** 导入整合包：文件选择器 → 复用拖入整合包的安装管线 */
     private void onImportModpack(javafx.scene.Node owner) {
         FileChooser fc = new FileChooser();
-        fc.setTitle("选择整合包压缩包（Modrinth .mrpack 或 CurseForge .zip）");
+        fc.setTitle("选择整合包（.mrpack / .zip，支持 Modrinth / CurseForge / MCBBS / HMCL / MultiMC / PCL 懒人包）");
         fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("整合包", "*.mrpack", "*.zip"));
         File f = fc.showOpenDialog(owner.getScene() != null ? owner.getScene().getWindow() : null);
         if (f != null) handleDroppedModpack(f.toPath());
@@ -2987,10 +2987,10 @@ public final class App extends Application {
         return ok > 0;
     }
 
-    /** 拖入整合包压缩包：解析并自动下载安装（接入下载监控悬浮球）。支持 Modrinth .mrpack、CurseForge manifest.json 的 zip 与 PCL 全量游戏包 */
+    /** 拖入整合包压缩包：解析并自动下载安装（接入下载监控悬浮球）。支持 Modrinth .mrpack、CurseForge / MCBBS / HMCL / MultiMC 的 zip 与 PCL 全量游戏包 */
     private void handleDroppedModpack(Path archive) {
         if (!MinecraftService.looksLikeModpack(archive)) {
-            showToast("无法识别整合包格式：支持 .mrpack、含 modrinth.index.json / manifest.json 的 zip、PCL 全量游戏包", true);
+            showToast("无法识别整合包格式：支持 .mrpack，以及 Modrinth / CurseForge / MCBBS / HMCL / MultiMC / PCL 懒人包 zip", true);
             return;
         }
         if (mc.monitor.running()) {

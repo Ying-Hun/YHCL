@@ -3983,7 +3983,45 @@ public final class MinecraftService {
         }
     }
 
-    /** 是否为整合包压缩包：.mrpack，或含 modrinth.index.json / modpack.mrpack / manifest.json 的 zip，
+    /** 各家整合包的元数据入口文件名（按分发优先级） */
+    private static final String[] PACK_META_NAMES =
+            {"manifest.json", "mcbbs.packmeta", "modpack.json", "mmc-pack.json"};
+
+    /** 整合包元数据条目：entry = zip 内文件，prefix = 所在目录前缀（含尾 /，根目录为空串） */
+    private record Meta(ZipEntry entry, String prefix) {
+        /** 条目文件名（去掉目录部分） */
+        String base() {
+            String n = zipName(entry);
+            return n.substring(n.lastIndexOf('/') + 1);
+        }
+    }
+
+    /** 在 zip 里找元数据条目：根目录命中优先，其次允许外层包装目录（如 整合包名/manifest.json） */
+    private static Meta findMeta(ZipFile zf, String... names) {
+        for (String name : names) {
+            Meta wrapped = null;
+            Enumeration<? extends ZipEntry> en = zf.entries();
+            while (en.hasMoreElements()) {
+                ZipEntry e = en.nextElement();
+                if (e.isDirectory()) continue;
+                String n = zipName(e);
+                if (n.equals(name)) return new Meta(e, "");
+                if (wrapped == null && n.endsWith("/" + name))
+                    wrapped = new Meta(e, n.substring(0, n.length() - name.length()));
+            }
+            if (wrapped != null) return wrapped;
+        }
+        return null;
+    }
+
+    /** 压缩包文件名去掉扩展名（元数据缺整合包名时的兜底） */
+    private static String zipBaseName(Path archive) {
+        String n = archive.getFileName().toString();
+        int dot = n.lastIndexOf('.');
+        return dot > 0 ? n.substring(0, dot) : n;
+    }
+
+    /** 是否为整合包压缩包：.mrpack，或含 modrinth.index.json / modpack.mrpack / 各家整合包元数据的 zip，
      *  或 PCL 全量游戏包（.minecraft/versions/&lt;版本名&gt;/ 整包结构的懒人包） */
     public static boolean looksLikeModpack(Path p) {
         String n = p.getFileName().toString().toLowerCase();
@@ -3992,7 +4030,7 @@ public final class MinecraftService {
         try (ZipFile zf = openZip(p.toFile())) {
             return zf.getEntry("modrinth.index.json") != null
                     || zf.getEntry("modpack.mrpack") != null
-                    || zf.getEntry("manifest.json") != null
+                    || findMeta(zf, PACK_META_NAMES) != null
                     || findFullPack(zf) != null;
         } catch (Exception e) {
             return false;
@@ -4003,6 +4041,9 @@ public final class MinecraftService {
      * 安装整合包压缩包到当前游戏目录（接入下载监控，悬浮球/详情页可见进度）：
      *  - Modrinth 格式（.mrpack 或含 modrinth.index.json 的 zip）：按索引并行下载文件（SHA1 校验）+ 解压 overrides
      *  - CurseForge 格式（manifest.json）：解析文件清单下载 mods + 解压 overrides + 安装加载器生成版本
+     *  - MCBBS 格式（mcbbs.packmeta，或带 addons 的 manifest.json）：按清单下载文件 + 解压 overrides + 安装加载器
+     *  - HMCL 格式（modpack.json + minecraft/）：mods/配置随包自带，从 pack.json 推断加载器
+     *  - MultiMC/Prism 格式（mmc-pack.json）：按组件映射安装加载器 + 解压 minecraft/ 游戏目录
      *  - PCL 全量游戏包（versions/&lt;版本名&gt;/ 整包结构）：版本 json+jar+游戏目录内容整体解压，合并 assets/libraries
      *  - 其他 zip：解压其中的 mods/config/resourcepacks/shaderpacks 目录
      */
@@ -4026,11 +4067,25 @@ public final class MinecraftService {
                     } finally {
                         try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
                     }
-                } else if (zf.getEntry("manifest.json") != null) {
-                    res = installCurseForgePack(zf, zf.getEntry("manifest.json"), log);
                 } else {
-                    FullPack fp = findFullPack(zf);
-                    res = fp != null ? installFullGamePack(zf, fp, log) : installPlainZip(zf, log);
+                    // manifest 类元数据：兼容外层包装目录（如 整合包名/manifest.json）。
+                    // manifest.json 带 addons 字段的是 MCBBS 格式（CurseForge 的 manifest.json 没有 addons）
+                    Meta meta = findMeta(zf, PACK_META_NAMES);
+                    if (meta == null) {
+                        FullPack fp = findFullPack(zf);
+                        res = fp != null ? installFullGamePack(zf, fp, log) : installPlainZip(zf, log);
+                    } else {
+                        JsonNode root = MAPPER.readTree(zf.getInputStream(meta.entry()));
+                        String base = meta.base();
+                        if ("mcbbs.packmeta".equals(base) || ("manifest.json".equals(base) && root.has("addons")))
+                            res = installMcbbsPack(zf, root, meta.prefix(), archive, log);
+                        else if ("manifest.json".equals(base))
+                            res = installCurseForgePack(zf, root, meta.prefix(), log);
+                        else if ("modpack.json".equals(base))
+                            res = installHmclPack(zf, root, meta.prefix(), archive, log);
+                        else
+                            res = installMmcPack(zf, root, meta.prefix(), archive, log);
+                    }
                 }
             } catch (Exception e) {
                 monitor.finishFail(e.getMessage() == null ? e.toString() : e.getMessage());
@@ -4269,8 +4324,7 @@ public final class MinecraftService {
      *  3. 解压 overrides 覆盖游戏目录（防 zip 路径穿越）
      *  4. 复用加载器安装管线生成可启动版本；加载器失败不影响已下载的 mods/overrides，只记入依赖提示
      */
-    private ModpackResult installCurseForgePack(ZipFile zf, ZipEntry manifest, Consumer<String> log) throws Exception {
-        JsonNode root = MAPPER.readTree(zf.getInputStream(manifest));
+    private ModpackResult installCurseForgePack(ZipFile zf, JsonNode root, String prefix, Consumer<String> log) throws Exception {
         log.accept("CurseForge 整合包：" + root.path("name").asText("(未命名)")
                 + "  " + root.path("version").asText(""));
 
@@ -4400,11 +4454,11 @@ public final class MinecraftService {
         }
         log.accept("mods 下载：" + ok.get() + "/" + pending.size() + " 个");
 
-        // 解压 overrides/（目录名以清单为准）到游戏目录
+        // 解压 overrides/（目录名以清单为准，含外层包装前缀）到游戏目录
         String ovPrefix = root.path("overrides").asText("overrides");
         while (ovPrefix.endsWith("/")) ovPrefix = ovPrefix.substring(0, ovPrefix.length() - 1);
         if (ovPrefix.isBlank()) ovPrefix = "overrides";
-        String want = ovPrefix + "/";
+        String want = prefix + ovPrefix + "/";
         monitor.setPhase(Phase.INSTALL, "解压 overrides");
         int overrides = 0;
         Enumeration<? extends ZipEntry> en = zf.entries();
@@ -4465,6 +4519,349 @@ public final class MinecraftService {
     /** 文件名拼进 URL path：空格等按 %XX 转义（URLEncoder 会把空格编成 +，path 里要换回 %20） */
     private static String encodePath(String s) {
         return URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    /** 相对路径拼进 URL path：按 / 分段转义 */
+    private static String encodeRelPath(String path) {
+        String[] seg = path.split("/");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < seg.length; i++) {
+            if (i > 0) sb.append('/');
+            sb.append(encodePath(seg[i]));
+        }
+        return sb.toString();
+    }
+
+    /** 整合包待下载文件：显示名 + 落盘相对路径 + 候选 URL + 预期大小（未知为 -1）+ SHA1（未知为空） */
+    private record PackFile(String name, String rel, String[] urls, long size, String sha1) {}
+
+    /**
+     * 清单式整合包的通用安装：装加载器生成版本 → 并行下载文件清单 → 解压 overrides 到版本隔离目录。
+     * MCBBS/HMCL/MultiMC 三个格式只做解析，落盘统一走这里；files 为空表示内容全随包自带。
+     */
+    private ModpackResult installListedPack(String packName, String mcVer, String loaderKind, String loaderVer,
+                                            String loaderId, List<PackFile> files, ZipFile zf, String overrideDir,
+                                            Consumer<String> log) throws Exception {
+        List<String> depList = new ArrayList<>();
+        if (!mcVer.isBlank()) depList.add("Minecraft " + mcVer);
+        if (!loaderId.isBlank()) depList.add(loaderId);
+        StringBuilder depText = new StringBuilder(String.join(" · ", depList));
+        if (!depText.isEmpty()) log.accept("整合包依赖：" + depText);
+
+        // 先装加载器拿到真实 versionId，mods/overrides 都落到 versions/<id>/（版本隔离目录）；
+        // 版本目录以整合包名命名，重装同一个整合包直接复用，不再跑一遍安装器
+        String packId = packDirName(packName);
+        String versionId = packReusableId(packId, mcVer, loaderKind);
+        if (!versionId.isBlank()) {
+            log.accept("复用已安装的整合包版本：" + versionId);
+        } else {
+            versionId = packInstallLoader(mcVer, loaderKind, loaderVer, loaderId, depText, log);
+            if (!versionId.isBlank()) versionId = renameVersionToPack(versionId, packId, loaderKind, mcVer, log);
+        }
+        Path vbase = versionId.isBlank() ? gameDir : gameDir.resolve("versions").resolve(versionId);
+
+        monitor.setPhase(Phase.DOWNLOAD, "下载整合包文件");
+        int ok = 0, bad = 0;
+        if (!files.isEmpty()) {
+            log.accept("待下载文件：" + files.size() + " 个");
+            int base = monitor.addBatch(files.stream().map(PackFile::name).toList());
+            AtomicInteger okA = new AtomicInteger(), badA = new AtomicInteger();
+            ExecutorService pool = Executors.newFixedThreadPool(Math.min(dlThreads(), files.size()));
+            CountDownLatch latch = new CountDownLatch(files.size());
+            for (int i = 0; i < files.size(); i++) {
+                final int idx = base + i;
+                final PackFile p = files.get(i);
+                pool.submit(() -> {
+                    try {
+                        if (monitor.cancelRequested()) { monitor.markWaiting(idx); return; }
+                        monitor.markDownloading(idx);
+                        Path target = vbase.resolve(p.rel()).normalize();
+                        if (!target.startsWith(vbase)) throw new IOException("非法路径：" + p.rel());
+                        // 重装/补装：已有文件大小或 SHA1 对得上的直接跳过，不用全部重下
+                        if (Files.exists(target) && ((p.size() > 0 && Files.size(target) == p.size())
+                                || (!p.sha1().isBlank() && sha1HexFile(target).equals(p.sha1().toLowerCase())))) {
+                            monitor.markDone(idx, target);
+                            okA.incrementAndGet();
+                            return;
+                        }
+                        downloadPackFile(p.urls(), p.sha1(), p.size(), target);
+                        monitor.markDone(idx, target);
+                        okA.incrementAndGet();
+                    } catch (Exception ex) {
+                        monitor.markFailed(idx, ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                        badA.incrementAndGet();
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            latch.await();
+            pool.shutdown();
+            ok = okA.get();
+            bad = badA.get();
+            log.accept("文件下载：" + ok + "/" + files.size() + " 个");
+        }
+
+        // 解压 overrides 到版本隔离目录（HMCL 的 minecraft/pack.json 是版本定义，只用于推断加载器，不落盘）
+        monitor.setPhase(Phase.INSTALL, "解压 overrides");
+        int overrides = 0;
+        if (!overrideDir.isBlank()) {
+            String want = overrideDir.endsWith("/") ? overrideDir : overrideDir + "/";
+            Enumeration<? extends ZipEntry> en = zf.entries();
+            while (en.hasMoreElements()) {
+                ZipEntry e = en.nextElement();
+                if (e.isDirectory()) continue;
+                String n = zipName(e);
+                if (!n.startsWith(want)) continue;
+                String sub = n.substring(want.length());
+                if (sub.isBlank() || sub.equals("pack.json")) continue;
+                Path target = vbase.resolve(sub).normalize();
+                if (!target.startsWith(vbase)) continue;
+                Files.createDirectories(target.getParent());
+                try (InputStream in = zf.getInputStream(e)) {
+                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                overrides++;
+            }
+        }
+        log.accept("overrides 解压：" + overrides + " 个文件");
+
+        if (monitor.cancelRequested()) throw new IOException("已取消");
+        return new ModpackResult(ok, bad, overrides, depText.toString(), versionId);
+    }
+
+    /**
+     * MCBBS 整合包（mcbbs.packmeta，或带 addons 字段的 manifest.json）：
+     *  - addons[] 给出 Minecraft 版本与加载器；files[] 逐个下载（curse → mods/&lt;fileName&gt;，addon → 按 path 落盘）
+     *  - addon 文件从 &lt;fileApi&gt;/overrides/&lt;path&gt; 下载（SHA1 校验）；curse 文件走 CurseForge CDN 管线
+     *  - 自定义 libraries/启动参数（launchInfo）不支持，仅提示
+     */
+    private ModpackResult installMcbbsPack(ZipFile zf, JsonNode root, String prefix, Path archive,
+                                           Consumer<String> log) throws Exception {
+        String name = root.path("name").asText("");
+        if (name.isBlank()) name = zipBaseName(archive);
+        log.accept("MCBBS 整合包：" + name + "  " + root.path("version").asText(""));
+
+        // addons[]：id=minecraft 是 MC 版本，其余是加载器（liteloader/optifine 等只提示）
+        String mcVer = "", loaderKind = "", loaderVer = "", loaderId = "";
+        StringBuilder note = new StringBuilder();
+        List<String[]> addons = new ArrayList<>();
+        for (JsonNode a : root.path("addons")) addons.add(new String[]{a.path("id").asText(""), a.path("version").asText("")});
+        for (String[] a : addons) if (a[0].equalsIgnoreCase("minecraft")) { mcVer = a[1]; break; }
+        for (String[] a : addons) {
+            String id = a[0].toLowerCase(Locale.ROOT);
+            switch (id) {
+                case "forge", "neoforge", "fabric", "quilt" -> {
+                    if (loaderKind.isBlank()) {
+                        loaderKind = id;
+                        loaderVer = "forge".equals(id) ? forgeVerOf(a[1], mcVer) : a[1];
+                        loaderId = id + "-" + loaderVer;
+                    }
+                }
+                case "liteloader", "optifine", "cleanroom" -> note.append(id).append(' ').append(a[1]).append("；");
+                default -> { }
+            }
+        }
+
+        String apiBase = root.path("fileApi").asText("");
+        while (apiBase.endsWith("/")) apiBase = apiBase.substring(0, apiBase.length() - 1);
+        List<PackFile> files = new ArrayList<>();
+        for (JsonNode f : root.path("files")) {
+            boolean curse = "curse".equalsIgnoreCase(f.path("type").asText("")) || f.has("projectID");
+            if (curse) {
+                long pid = f.path("projectID").asLong();
+                long fid = f.path("fileID").asLong();
+                if (fid == 0) continue;
+                String fname = f.path("fileName").asText("");
+                long size = -1;
+                String sha1 = "";
+                if (fname.isBlank()) {
+                    CfFile cf = fetchCfFileViaApi(pid, fid);
+                    if (cf != null && !cf.name().isBlank()) {
+                        fname = cf.name();
+                        size = cf.size();
+                        sha1 = cf.sha1();
+                    }
+                }
+                if (fname.isBlank()) {
+                    fname = "cf-" + fid + ".jar";
+                    log.accept("未解析到文件名，按 ID 兜底下载：" + fname + "（projectID=" + pid + "）");
+                }
+                fname = new File(fname).getName();   // 只取文件名，防止清单塞路径写出游戏目录
+                String tail = (fid / 1000) + "/" + (fid % 1000) + "/" + encodePath(fname);
+                List<String> urls = new ArrayList<>();
+                String explicit = f.path("url").asText("");
+                // 没给 url 时用 CurseForge 官方下载页（302 到 CDN），与 HMCL 兜底一致
+                urls.add(explicit.isBlank()
+                        ? "https://www.curseforge.com/minecraft/mc-mods/" + pid + "/download/" + fid + "/file"
+                        : explicit);
+                urls.add("https://mediafilez.forgecdn.net/files/" + tail);
+                urls.add("https://edge.forgecdn.net/files/" + tail);
+                urls.add("https://media.forgecdn.net/files/" + tail);
+                urls.add("https://cursemaven.com/curse/maven/x-" + pid + "/" + fid + "/x-" + pid + "-" + fid + ".jar");
+                files.add(new PackFile(fname, "mods/" + fname, urls.toArray(new String[0]), size, sha1));
+            } else {
+                String path = f.path("path").asText("").replace('\\', '/');
+                while (path.startsWith("/")) path = path.substring(1);
+                if (path.isBlank() || path.contains("..")) continue;
+                if (apiBase.isBlank()) {
+                    log.accept("跳过无下载地址的文件（整合包缺 fileApi）：" + path);
+                    continue;
+                }
+                files.add(new PackFile(path.substring(path.lastIndexOf('/') + 1), path,
+                        new String[]{apiBase + "/overrides/" + encodeRelPath(path)},
+                        f.path("size").asLong(-1), f.path("hash").asText("")));
+            }
+        }
+        if (root.has("libraries") || root.has("launchInfo") || root.has("settings"))
+            log.accept("整合包自定义依赖/启动参数未导入，如有需要请在版本设置里手动调整");
+        if (!note.isEmpty()) log.accept("需手动安装的加载器：" + note);
+
+        String ovDir = root.path("overrides").asText("overrides");
+        while (ovDir.endsWith("/")) ovDir = ovDir.substring(0, ovDir.length() - 1);
+        if (ovDir.isBlank()) ovDir = "overrides";
+        return installListedPack(name, mcVer, loaderKind, loaderVer, loaderId, files, zf, prefix + ovDir, log);
+    }
+
+    /**
+     * HMCL 整合包（modpack.json + minecraft/ 整目录）：mods/配置随包自带，无下载清单。
+     * 加载器从 minecraft/pack.json 推断（新版是 patches[] 组件清单，旧版是 versions json 的 libraries GAV），
+     * 该文件只用于推断、不落盘。
+     */
+    private ModpackResult installHmclPack(ZipFile zf, JsonNode root, String prefix, Path archive,
+                                          Consumer<String> log) throws Exception {
+        String name = root.path("name").asText("");
+        if (name.isBlank()) name = zipBaseName(archive);
+        log.accept("HMCL 整合包：" + name + "  " + root.path("version").asText(""));
+
+        String mcVer = root.path("gameVersion").asText("");
+        String loaderKind = "", loaderVer = "", loaderId = "";
+        StringBuilder note = new StringBuilder();
+        ZipEntry packJson = zf.getEntry(prefix + "minecraft/pack.json");
+        if (packJson != null) {
+            JsonNode pj = MAPPER.readTree(zf.getInputStream(packJson));
+            List<String[]> comps = new ArrayList<>();   // {组件id, 版本}
+            for (JsonNode p : pj.path("patches")) {
+                String id = p.path("id").asText("").toLowerCase(Locale.ROOT);
+                if (id.endsWith("-loader")) id = id.substring(0, id.length() - "-loader".length());
+                comps.add(new String[]{id, p.path("version").asText("")});
+            }
+            if (comps.isEmpty()) {
+                // 旧版 HMCL 导出：pack.json 是 versions json，加载器藏在 libraries 的 GAV 里
+                if (mcVer.isBlank()) mcVer = pj.path("inheritsFrom").asText("");
+                for (JsonNode lib : pj.path("libraries")) {
+                    String[] ga = lib.path("name").asText("").split(":");
+                    if (ga.length < 3) continue;
+                    String key = ga[0].toLowerCase(Locale.ROOT) + ":" + ga[1].toLowerCase(Locale.ROOT);
+                    switch (key) {
+                        case "net.minecraftforge:forge" -> comps.add(new String[]{"forge", ga[2]});
+                        case "net.neoforged:neoforge" -> comps.add(new String[]{"neoforge", ga[2]});
+                        case "net.fabricmc:fabric-loader" -> comps.add(new String[]{"fabric", ga[2]});
+                        case "org.quiltmc:quilt-loader" -> comps.add(new String[]{"quilt", ga[2]});
+                        default -> {
+                            if (key.startsWith("com.mumfrey:liteloader") || ga[1].toLowerCase(Locale.ROOT).contains("optifine"))
+                                note.append(ga[1]).append(' ').append(ga[2]).append("；");
+                        }
+                    }
+                }
+            }
+            for (String[] c : comps) {
+                if (c[0].equals("minecraft")) {
+                    if (mcVer.isBlank()) mcVer = c[1];
+                } else if (loaderKind.isBlank()) {
+                    switch (c[0]) {
+                        case "forge" -> { loaderKind = "forge"; loaderVer = forgeVerOf(c[1], mcVer); }
+                        case "neoforge" -> { loaderKind = "neoforge"; loaderVer = c[1]; }
+                        case "fabric" -> { loaderKind = "fabric"; loaderVer = c[1]; }
+                        case "quilt" -> { loaderKind = "quilt"; loaderVer = c[1]; }
+                        case "liteloader", "optifine", "cleanroom" -> note.append(c[0]).append(' ').append(c[1]).append("；");
+                        default -> { }
+                    }
+                }
+            }
+        }
+        if (mcVer.isBlank()) log.accept("未识别出 Minecraft 版本，请在版本详情页确认");
+        if (!loaderKind.isBlank()) loaderId = loaderKind + "-" + loaderVer;
+        if (!note.isEmpty()) log.accept("需手动安装的加载器：" + note);
+        return installListedPack(name, mcVer, loaderKind, loaderVer, loaderId, List.of(), zf, prefix + "minecraft", log);
+    }
+
+    /**
+     * MultiMC/Prism 整合包（mmc-pack.json + instance.cfg + minecraft/ 或 .minecraft/）：
+     * 按 components 的 uid 映射到现有加载器安装管线（不做 meta patch 合成），游戏目录随包解压。
+     */
+    private ModpackResult installMmcPack(ZipFile zf, JsonNode root, String prefix, Path archive,
+                                         Consumer<String> log) throws Exception {
+        // 实例名在 instance.cfg（name=xxx），缺了用压缩包文件名兜底
+        String name = zipBaseName(archive);
+        ZipEntry cfg = zf.getEntry(prefix + "instance.cfg");
+        if (cfg != null) {
+            String text = new String(zf.getInputStream(cfg).readAllBytes(), StandardCharsets.UTF_8);
+            for (String line : text.split("\r?\n")) {
+                if (line.startsWith("name=")) {
+                    String v = line.substring("name=".length()).trim();
+                    if (!v.isBlank()) name = v;
+                    break;
+                }
+            }
+        }
+        log.accept("MultiMC/Prism 整合包：" + name);
+
+        String mcVer = "", loaderKind = "", loaderVer = "", loaderId = "";
+        StringBuilder note = new StringBuilder();
+        for (JsonNode c : root.path("components")) {
+            if ("net.minecraft".equals(c.path("uid").asText(""))) {
+                mcVer = c.path("version").asText("");
+                break;
+            }
+        }
+        for (JsonNode c : root.path("components")) {
+            if (!loaderKind.isBlank()) break;
+            String uid = c.path("uid").asText("");
+            String ver = c.path("version").asText("");
+            switch (uid) {
+                case "net.minecraftforge" -> { loaderKind = "forge"; loaderVer = forgeVerOf(ver, mcVer); }
+                case "net.neoforged" -> { loaderKind = "neoforge"; loaderVer = ver; }
+                case "net.fabricmc.fabric-loader" -> { loaderKind = "fabric"; loaderVer = ver; }
+                case "org.quiltmc.quilt-loader" -> { loaderKind = "quilt"; loaderVer = ver; }
+                default -> {
+                    if (uid.contains("optifine") || uid.contains("liteloader") || uid.contains("cleanroom"))
+                        note.append(uid).append(' ').append(ver).append("；");
+                }
+            }
+        }
+        if (mcVer.isBlank()) log.accept("mmc-pack.json 未找到 Minecraft 组件，请手动确认游戏版本");
+        if (!loaderKind.isBlank()) loaderId = loaderKind + "-" + loaderVer;
+        if (!note.isEmpty()) log.accept("需手动安装的加载器：" + note);
+
+        // 游戏目录随包自带（MultiMC 老布局 minecraft/，Prism/HMCL 导出 .minecraft/）
+        String overrideDir = "";
+        for (String cand : new String[]{"minecraft", ".minecraft"}) {
+            if (hasEntryUnder(zf, prefix + cand + "/")) {
+                overrideDir = prefix + cand;
+                break;
+            }
+        }
+        return installListedPack(name, mcVer, loaderKind, loaderVer, loaderId, List.of(), zf, overrideDir, log);
+    }
+
+    /** zip 内是否有该前缀下的文件条目 */
+    private static boolean hasEntryUnder(ZipFile zf, String prefix) {
+        Enumeration<? extends ZipEntry> en = zf.entries();
+        while (en.hasMoreElements()) {
+            ZipEntry e = en.nextElement();
+            if (!e.isDirectory() && zipName(e).startsWith(prefix)) return true;
+        }
+        return false;
+    }
+
+    /** Forge 版本号可能是 &lt;mcVer&gt;-&lt;forgeVer&gt;（versions json 里的 GAV），去掉 MC 版本前缀 */
+    private static String forgeVerOf(String ver, String mcVer) {
+        if (ver == null) return "";
+        if (!mcVer.isBlank() && ver.startsWith(mcVer + "-")) return ver.substring(mcVer.length() + 1);
+        int dash = ver.indexOf('-');
+        if (dash > 0 && ver.substring(0, dash).matches("\\d+(\\.\\d+)+")) return ver.substring(dash + 1);
+        return ver;
     }
 
     /**
